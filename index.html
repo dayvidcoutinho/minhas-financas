@@ -150,6 +150,18 @@ a{color:inherit;text-decoration:none}
   .col-3{grid-template-columns:1fr!important}
   .col-2{grid-template-columns:1fr!important}
   .hide-m{display:none!important}
+  /* Colapsa os grids de página (múltiplos cards lado a lado) para 1 coluna — evita corte horizontal */
+  [style*="grid-template-columns:1.1fr 1fr 1fr"],
+  [style*="grid-template-columns:1.4fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr;gap:18px"],
+  [style*="grid-template-columns:repeat(4,1fr)"],
+  [style*="grid-template-columns:1fr 1fr;gap:16px 32px"],
+  [style*="grid-template-columns:1fr 1fr 1fr;gap:12px"],
+  [style*="grid-template-columns:repeat(3,1fr)"],
+  [style*="grid-template-columns:180px 1fr"],
+  [style*="grid-template-columns:260px 1fr"]{
+    grid-template-columns:1fr!important;
+  }
 }
 
 /* ── Panel ──────────────────────────────────────────────────────── */
@@ -2788,7 +2800,7 @@ function ocultarCotacoes(tickerMap, tickers){
 let scanFileInput=null;
 function triggerScan(type){
   if(!S.apiKey){setState({scanErr:'Configure sua API Key nas Configurações (⚙️) primeiro.'});return;}
-  if(!scanFileInput){scanFileInput=document.createElement('input');scanFileInput.type='file';scanFileInput.accept='image/*';scanFileInput.setAttribute('capture','environment');}
+  if(!scanFileInput){scanFileInput=document.createElement('input');scanFileInput.type='file';scanFileInput.accept='image/*';scanFileInput.style.display='none';document.body.appendChild(scanFileInput);}
   scanFileInput.onchange=async e=>{
     const file=e.target.files[0];if(!file)return;
     setState({scanLoad:true,scanErr:'',scanImg:URL.createObjectURL(file)});
@@ -2813,7 +2825,7 @@ function triggerScan(type){
 let stmtFileInput=null;
 function triggerStatementScan(){
   if(!S.apiKey){setState({stmtScanErr:'Configure sua API Key nas Configurações (⚙️) primeiro.'});return;}
-  if(!stmtFileInput){stmtFileInput=document.createElement('input');stmtFileInput.type='file';stmtFileInput.accept='image/*';stmtFileInput.multiple=true;}
+  if(!stmtFileInput){stmtFileInput=document.createElement('input');stmtFileInput.type='file';stmtFileInput.accept='image/*';stmtFileInput.multiple=true;stmtFileInput.style.display='none';document.body.appendChild(stmtFileInput);}
   stmtFileInput.onchange=async e=>{
     const files=[...e.target.files];
     if(!files.length)return;
