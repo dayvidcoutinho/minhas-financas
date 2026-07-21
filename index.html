@@ -2431,12 +2431,28 @@ function bindEvents(){
       if(!n) return;
       S.form={...S.form,[n]:e.target.value};
       // Only re-render when visual structure needs to change (not on typing)
+      // restoreFocus: refoca o campo depois do render() e tenta restaurar o cursor
+      // (setSelectionRange não é suportado em <input type="number">, por isso o try/catch)
+      const restoreFocus=(name,pos)=>{
+        const el=document.querySelector(`[name="${name}"]`);
+        if(!el) return;
+        el.focus();
+        try{ el.setSelectionRange(pos,pos); }catch{}
+      };
       if(n==='banco'||n==='bandeira') render();
-      else if(n==='nome'&&S.modal==='cartao') render();
+      else if(n==='nome'&&S.modal==='cartao'){
+        const pos=e.target.selectionStart;
+        render();
+        restoreFocus('nome',pos);
+      }
       else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;}
       else if(n==='parcelas'){
-        // Re-render apenas quando parcelas muda (muda a seção de recorrência)
-        if(S.modal==='despesa') render();
+        // Re-render apenas quando parcelas muda (muda a seção de recorrência), preservando o foco
+        if(S.modal==='despesa'){
+          const pos=e.target.selectionStart;
+          render();
+          restoreFocus('parcelas',pos);
+        }
       }
       else if(n==='valor'){
         // Atualiza o hint de parcelamento sem re-renderizar o modal inteiro
