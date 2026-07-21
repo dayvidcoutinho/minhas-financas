@@ -597,19 +597,23 @@ let S = {
   despSearch: '',
   despCatFilter: 'Todos',
   despTipoFilter: 'Todos',
+  reservaMeses: LS.get('mf6-reserva-meses')||6,
+  budgets: LS.get('mf6-budgets')||{},
 };
 
 const save=()=>{
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
   // No GAS: salva direto sem lock para não perder dados
   if(typeof google !== 'undefined' && google.script){
     const payload=JSON.stringify({
       receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
       lancs:S.lancs, invest:S.invest, customCats:S.customCats,
       investMetas:S.investMetas, investHistorico:S.investHistorico,
-      investAporte:S.investAporte, apiKey:S.apiKey, v:'mf6'
+      investAporte:S.investAporte, apiKey:S.apiKey,
+      reservaMeses:S.reservaMeses, budgets:S.budgets, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
@@ -644,7 +648,8 @@ function derived(){
   const totCa=S.cartoes.reduce((a,c)=>a+cardFat(c.id,S.mes,true),0); // só gastos pessoais
   const pendRe=S.lancs.filter(x=>x.reembolso&&!x.reembolsado);
   const totRe=pendRe.reduce((a,x)=>a+(+x.valor),0);
-  const saldo=totR-totD;
+  const saldo=totR-totD-totCa; // saldo livre real: receita menos despesas diretas e fatura do cartão
+  const taxaPoupanca=totR>0?(saldo/totR*100):0;
   const nextMes=(()=>{const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()+1);return d.toISOString().slice(0,7);})();
   const prevMes=(()=>{const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7);})();
   const faturaVencendo=S.cartoes.reduce((a,c)=>a+cardFat(c.id,prevMes,true),0);
@@ -662,7 +667,34 @@ function derived(){
     const lanc=S.lancs.filter(x=>x.mes===m&&x.origem!=='empresa').reduce((a,x)=>a+(+x.valor),0);
     return{n:moLbl(m),Receitas:r,Despesas:de+lanc};
   });
-  return{fR,fD,totR,totD,totI,totCa,pendRe,totRe,saldo,pct,allCats,hist6,cardFat,cardFatAll,nextMes,prevMes,faturaVencendo};
+
+  // ── Reserva de emergência ────────────────────────────────────────────────
+  // Proxy de liquidez: ativos em Renda Fixa (ajustável pelo usuário via meses-alvo)
+  const mesesComDado=hist6.filter(h=>h.Receitas>0||h.Despesas>0);
+  const gastoMedioMensal=mesesComDado.length?mesesComDado.reduce((a,h)=>a+h.Despesas,0)/mesesComDado.length:(totD+totCa);
+  const reservaAtual=S.invest.filter(x=>x.tipo==='Renda Fixa').reduce((a,x)=>a+(+x.valor),0);
+  const reservaMesesAlvo=+S.reservaMeses||6;
+  const reservaMeta=gastoMedioMensal*reservaMesesAlvo;
+  const reservaPct=reservaMeta>0?Math.min(reservaAtual/reservaMeta*100,100):0;
+
+  // ── Projeção de fluxo de caixa — próximos 6 meses ─────────────────────────
+  const mesesComReceita=mesesComDado.filter(h=>h.Receitas>0);
+  const receitaMediaProjetada=mesesComReceita.length
+    ? mesesComReceita.reduce((a,h)=>a+h.Receitas,0)/mesesComReceita.length
+    : totR;
+  const recorrenteFixoMensal=fD.filter(x=>x.recorrencia==='mensal').reduce((a,x)=>a+(+x.valor),0);
+  const fluxoFuturo=Array.from({length:6},(_,i)=>{
+    const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()+1+i);const m=d.toISOString().slice(0,7);
+    const parcelasDesp=S.despesas.filter(x=>x.origem!=='empresa'&&x.data?.startsWith(m)).reduce((a,x)=>a+(+x.valor),0);
+    const parcelasLanc=S.lancs.filter(x=>x.origem!=='empresa'&&x.mes===m).reduce((a,x)=>a+(+x.valor),0);
+    const comprometido=parcelasDesp+parcelasLanc;
+    return{n:moLbl(m),mes:m,Receitas:receitaMediaProjetada,Despesas:comprometido+recorrenteFixoMensal,comprometido,recorrenteFixoMensal};
+  });
+  const totalComprometido6m=fluxoFuturo.reduce((a,x)=>a+x.comprometido,0);
+
+  return{fR,fD,totR,totD,totI,totCa,pendRe,totRe,saldo,taxaPoupanca,pct,allCats,hist6,cardFat,cardFatAll,nextMes,prevMes,faturaVencendo,
+    gastoMedioMensal,reservaAtual,reservaMesesAlvo,reservaMeta,reservaPct,
+    fluxoFuturo,totalComprometido6m,recorrenteFixoMensal};
 }
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
@@ -914,7 +946,9 @@ function renderMobileNav(){
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
 function pageDashboard(){
-  const {fR,fD,totR,totD,totI,totCa,pendRe,totRe,saldo,pct,allCats,hist6,faturaVencendo,nextMes,prevMes,cardFat}=derived();
+  const {fR,fD,totR,totD,totI,totCa,pendRe,totRe,saldo,taxaPoupanca,pct,allCats,hist6,faturaVencendo,nextMes,prevMes,cardFat,
+    gastoMedioMensal,reservaAtual,reservaMesesAlvo,reservaMeta,reservaPct,
+    fluxoFuturo,totalComprometido6m,recorrenteFixoMensal}=derived();
 
   // ── Balance trend (mock % for now) ──────────────────────────────
   const prevMonth=hist6[hist6.length-2]||{Receitas:0};
@@ -1124,6 +1158,51 @@ function pageDashboard(){
           </div>`;}).join('')}
       </div>
     </div>
+  </div>
+
+  <!-- ── ROW 4: Taxa de Poupança + Reserva de Emergência ─────────────── -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px">
+    <div class="w-card">
+      <div class="row between mb-4">
+        <div class="sec-title">Taxa de Poupança</div>
+        ${badge(taxaPoupanca>=20?'✓ Saudável':taxaPoupanca>=0?'Atenção':'Negativa',taxaPoupanca>=20?'var(--green)':taxaPoupanca>=0?'var(--amber)':'var(--red)')}
+      </div>
+      <div class="mono fw-800" style="font-size:26px;margin-top:8px;color:${taxaPoupanca>=20?'var(--green)':taxaPoupanca>=0?'var(--amber)':'var(--red)'}">${taxaPoupanca.toFixed(1)}%</div>
+      <div class="text-xs text-muted mt-6">do que sobra da receita depois de despesas e fatura do cartão · benchmark recomendado: 20%</div>
+      <div style="margin-top:12px">${progH(Math.max(taxaPoupanca,0),20,taxaPoupanca>=20?'var(--green)':'var(--amber)',6)}</div>
+    </div>
+    <div class="w-card">
+      <div class="row between mb-4">
+        <div class="sec-title">Reserva de Emergência</div>
+        <div class="row gap-6" style="font-size:11px;color:var(--muted)">
+          <span>meses-alvo:</span>
+          <input id="inp-reserva-meses" type="number" min="1" max="24" value="${reservaMesesAlvo}"
+            style="width:42px;background:var(--bg);border:1.5px solid var(--border);border-radius:7px;padding:2px 5px;font-size:12px;font-weight:700;text-align:center;outline:none;color:var(--text);font-family:var(--font)"/>
+        </div>
+      </div>
+      <div class="row between" style="align-items:baseline;margin-top:8px">
+        <div class="mono fw-800" style="font-size:22px;color:${reservaPct>=100?'var(--green)':'var(--text)'}">${fmt(reservaAtual)}</div>
+        <div class="text-xs text-muted">meta: ${fmt(reservaMeta)}</div>
+      </div>
+      <div style="margin-top:10px">${progH(reservaPct,100,reservaPct>=100?'var(--green)':reservaPct>=50?'var(--blue)':'var(--amber)',6)}</div>
+      <div class="text-xs text-muted mt-6">${fmtP(reservaPct)} da meta · baseado em ativos de Renda Fixa vs. ${reservaMesesAlvo} meses de gasto médio (${fmt(gastoMedioMensal)}/mês)</div>
+    </div>
+  </div>
+
+  <!-- ── ROW 5: Projeção de Fluxo de Caixa ────────────────────────────── -->
+  <div class="w-card" style="margin-top:18px">
+    <div class="row between mb-4" style="align-items:flex-start">
+      <div>
+        <div class="sec-title">Projeção de Fluxo de Caixa · Próximos 6 meses</div>
+        <div class="text-xs text-muted mt-4">Receita média projetada vs. compromissos já assumidos (parcelas + recorrentes fixos)</div>
+      </div>
+      <div style="text-align:right">
+        <div class="text-xs text-muted">Já comprometido em parcelas</div>
+        <div class="mono fw-800" style="font-size:16px;color:var(--red)">${fmt(totalComprometido6m)}</div>
+      </div>
+    </div>
+    ${barChartSVG(fluxoFuturo)}
+    ${recorrenteFixoMensal>0?`<div class="text-xs text-muted mt-8">+ ${fmt(recorrenteFixoMensal)}/mês em despesas fixas recorrentes já incluídos na projeção</div>`:''}
   </div>`;
 }
 
@@ -1245,30 +1324,48 @@ function pageDespesas(){
     </div>`).join('')}
   </div>
 
-  <!-- ── Dashboard de categorias ────────────────────────────────────────────── -->
+  <!-- ── Dashboard de categorias + orçamento ──────────────────────────────────── -->
   <div class="w-card mb-20">
-    <div class="row between mb-16">
+    <div class="row between mb-4">
       <div class="sec-title">Gastos por Categoria · ${moLbl(S.mes)}</div>
       <div class="mono fw-700" style="color:var(--red)">${fmt(totGeral)}</div>
     </div>
+    <div class="text-xs text-muted mb-16">Defina um limite mensal por categoria para acompanhar o orçamento</div>
+    ${(()=>{
+      const estourado=cats.filter(c=>{const b=+S.budgets[c.name]||0;return b>0&&c.value>b;});
+      return estourado.length?`<div class="mb-14" style="padding:10px 14px;background:var(--red-lt);border:1px solid rgba(244,63,94,.25);border-radius:10px;font-size:12px;color:var(--red);font-weight:600">
+        ⚠️ ${estourado.length} categoria${estourado.length>1?'s':''} acima do orçamento: ${estourado.map(c=>esc(c.name)).join(', ')}
+      </div>`:'';
+    })()}
     ${cats.length ? `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px 32px">
       ${cats.slice(0,12).map((c,i)=>{
-        const pctVal=totGeral>0?c.value/totGeral*100:0;
         const color=PAL[i%PAL.length];
         const active=catFilt===c.name;
+        const budget=+S.budgets[c.name]||0;
+        const pctVal=budget>0?(c.value/budget*100):(totGeral>0?c.value/totGeral*100:0);
+        const over=budget>0&&c.value>budget;
+        const barColor=budget>0?(over?'var(--red)':pctVal>=80?'var(--amber)':color):color;
         return`<div style="cursor:pointer;padding:6px 8px;border-radius:10px;background:${active?color+'18':'transparent'};border:1.5px solid ${active?color:'transparent'};transition:all .15s" data-desp-cat="${esc(c.name)}">
           <div class="row between mb-5">
             <div class="row gap-8">
               <span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;margin-top:1px"></span>
               <span style="font-size:12.5px;font-weight:600;color:var(--text-2)">${esc(c.name)}</span>
+              ${over?ic('alert','var(--red)'):''}
             </div>
-            <span class="mono fw-700" style="font-size:12px;color:${color}">${fmt(c.value)}</span>
+            <span class="mono fw-700" style="font-size:12px;color:${over?'var(--red)':color}">${fmt(c.value)}</span>
           </div>
           <div style="background:var(--border);border-radius:99px;height:5px;overflow:hidden">
-            <div style="background:${color};height:5px;width:${Math.min(pctVal,100).toFixed(1)}%;border-radius:99px;transition:width .5s"></div>
+            <div style="background:${barColor};height:5px;width:${Math.min(pctVal,100).toFixed(1)}%;border-radius:99px;transition:width .5s"></div>
           </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:3px">${fmtP(pctVal)}</div>
+          <div class="row between mt-4" style="align-items:center">
+            <span style="font-size:10px;color:${over?'var(--red)':'var(--muted)'};font-weight:${over?700:400}">${budget>0?`${fmtP(pctVal)} de ${fmt(budget)}${over?' · +'+fmt(c.value-budget)+' acima':''}`:fmtP(pctVal)}</span>
+            <span class="row gap-4" style="align-items:center" onclick="event.stopPropagation()">
+              <span style="font-size:9px;color:var(--muted)">orçamento</span>
+              <input class="budget-inp" data-budget-cat="${esc(c.name)}" type="number" min="0" placeholder="—" value="${budget||''}"
+                style="width:56px;background:var(--bg);border:1.5px solid var(--border-2);border-radius:6px;padding:2px 5px;font-size:11px;font-weight:700;font-family:var(--font);text-align:center;outline:none;color:var(--text)"/>
+            </span>
+          </div>
         </div>`;
       }).join('')}
     </div>
@@ -2480,6 +2577,17 @@ function bindEvents(){
     });
     el.addEventListener('click',e=>e.stopPropagation());
   });
+  // Orçamento por categoria
+  document.querySelectorAll('.budget-inp').forEach(el=>{
+    el.addEventListener('change',e=>{
+      const key=el.dataset.budgetCat;
+      const v=+e.target.value||0;
+      S.budgets={...S.budgets,[key]:v};
+      if(!v) delete S.budgets[key];
+      save();render();
+    });
+    el.addEventListener('click',e=>e.stopPropagation());
+  });
   // Aporte global
   const inpAporte=document.getElementById('inp-aporte-global');
   if(inpAporte){
@@ -2488,6 +2596,11 @@ function bindEvents(){
     });
     inpAporte.addEventListener('click',e=>e.stopPropagation());
   }
+  // Reserva de emergência — meses-alvo
+  const inpReservaMeses=document.getElementById('inp-reserva-meses');
+  if(inpReservaMeses)inpReservaMeses.addEventListener('change',e=>{
+    S.reservaMeses=Math.max(1,+e.target.value||6);save();render();
+  });
   // Histórico — registrar hoje
   const btnAddHist=document.getElementById('btn-add-hist');
   if(btnAddHist)btnAddHist.addEventListener('click',()=>{
@@ -2859,13 +2972,13 @@ function loadImportFile(file){
 }
 
 function exportData(){
-  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,v:'mf6'},null,2)],{type:'application/json'});
+  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,reservaMeses:S.reservaMeses,budgets:S.budgets,v:'mf6'},null,2)],{type:'application/json'});
   const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`financas-${today()}.json`;a.click();URL.revokeObjectURL(u);
 }
 function importData(file){
   const r=new FileReader();
   r.onload=e=>{
-    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
+    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;if(d.reservaMeses)S.reservaMeses=d.reservaMeses;if(d.budgets)S.budgets=d.budgets;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
     catch{setState({syncMsg:'❌ Arquivo inválido ou corrompido.'});}
   };
   r.readAsText(file);
@@ -2897,6 +3010,8 @@ if(typeof google !== 'undefined' && google.script){
         if(d.investHistorico)    S.investHistorico= d.investHistorico;
         if(d.investAporte!==undefined) S.investAporte= d.investAporte;
         if(d.apiKey)             S.apiKey    = d.apiKey;
+        if(d.reservaMeses)       S.reservaMeses = d.reservaMeses;
+        if(d.budgets)            S.budgets   = d.budgets;
       }catch(e){ console.error('GAS parse error:', e); }
     }
 
@@ -2905,7 +3020,7 @@ if(typeof google !== 'undefined' && google.script){
       cartoes: S.cartoes, lancs: S.lancs, invest: S.invest,
       customCats: S.customCats, investMetas: S.investMetas,
       investHistorico: S.investHistorico, investAporte: S.investAporte,
-      apiKey: S.apiKey, v:'mf6'
+      apiKey: S.apiKey, reservaMeses: S.reservaMeses, budgets: S.budgets, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
