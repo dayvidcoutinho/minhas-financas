@@ -611,6 +611,8 @@ let S = {
   despTipoFilter: 'Todos',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
   budgets: LS.get('mf6-budgets')||{},
+  syncCode: LS.get('mf6-synccode')||'',
+  cloudSyncMsg: '',
 };
 
 const save=()=>{
@@ -633,7 +635,59 @@ const save=()=>{
       .saveData(payload);
     _showGasBadge('💾 Salvando...');
   }
+  if(S.syncCode) cloudPush();
 };
+
+// ── Cloud Sync (Cloudflare KV via /api/sync, Pages Function) ───────────────────
+const genSyncCode=()=>{
+  const chars='23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+  return Array.from({length:20},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
+};
+function cloudApply(d){
+  if(!d) return false;
+  if(d.receitas) S.receitas=d.receitas;
+  if(d.despesas) S.despesas=d.despesas;
+  if(d.cartoes) S.cartoes=d.cartoes;
+  if(d.lancs) S.lancs=d.lancs;
+  if(d.invest) S.invest=d.invest;
+  if(d.customCats) S.customCats=d.customCats;
+  if(d.investMetas) S.investMetas=d.investMetas;
+  if(d.investAporte!==undefined) S.investAporte=d.investAporte;
+  if(d.investHistorico) S.investHistorico=d.investHistorico;
+  if(d.reservaMeses) S.reservaMeses=d.reservaMeses;
+  if(d.budgets) S.budgets=d.budgets;
+  LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
+  LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
+  LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
+  return true;
+}
+async function cloudPull(){
+  if(!S.syncCode) return false;
+  try{
+    const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{cache:'no-store'});
+    if(!res.ok) return false;
+    const d=await res.json();
+    return cloudApply(d);
+  }catch{ return false; }
+}
+let _cloudPushTimer=null;
+function cloudPush(){
+  if(!S.syncCode) return;
+  clearTimeout(_cloudPushTimer);
+  _cloudPushTimer=setTimeout(async ()=>{
+    try{
+      const payload=JSON.stringify({
+        receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
+        lancs:S.lancs, invest:S.invest, customCats:S.customCats,
+        investMetas:S.investMetas, investAporte:S.investAporte, investHistorico:S.investHistorico,
+        reservaMeses:S.reservaMeses, budgets:S.budgets,
+      });
+      const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
+      _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
+    }catch{ _showGasBadge('❌ Sem conexão com a nuvem'); }
+  },700);
+}
 function _showGasBadge(msg){
   let el=document.getElementById('gas-badge');
   if(!el){el=document.createElement('div');el.id='gas-badge';
@@ -2312,7 +2366,18 @@ function renderModal(){
   } else if(S.modal==='sync'){
     const total=S.receitas.length+S.despesas.length+S.lancs.length+S.invest.length;
     body=`<h3>Exportar / Importar</h3>
-      <div style="background:rgba(108,63,199,.07);border:1px solid rgba(108,63,199,.2);border-radius:11px;padding:14px"><div style="font-weight:700;font-size:13px;color:var(--accent);margin-bottom:6px">📱 Sync PC ↔ Celular</div><div style="font-size:12px;color:var(--muted);line-height:1.7">1. <b>Exporte</b> aqui → salve no Google Drive / iCloud<br>2. No outro aparelho, abra o app e <b>Importe</b></div></div>
+      <div style="background:rgba(6,148,162,.08);border:1px solid rgba(6,148,162,.25);border-radius:11px;padding:14px">
+        <div style="font-weight:700;font-size:13px;color:var(--teal);margin-bottom:6px">☁️ Sincronização automática</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px">Defina um código e use o <b>mesmo código</b> em todos os aparelhos — os dados sincronizam sozinhos, sem precisar exportar/importar. Guarde esse código com cuidado: quem tiver ele acessa seus dados.</div>
+        ${inp('Código de sincronização','syncCode','text',S.syncCode||'','Gere um código abaixo')}
+        <div class="row gap-8 mt-8">
+          <button id="btn-gen-synccode" class="${btnC('ghost','sm')}">🎲 Gerar código aleatório</button>
+          ${S.syncCode?`<button id="btn-sync-now" class="${btnC('teal','sm')}">${ic('sync','#fff')}Sincronizar agora</button>`:''}
+        </div>
+        ${S.syncCode?`<div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600">✓ Sincronização ativa — mudanças são enviadas automaticamente</div>`:''}
+        ${S.cloudSyncMsg?`<div style="font-size:12px;margin-top:8px;font-weight:600;color:${S.cloudSyncMsg.startsWith('❌')?'var(--red)':'var(--green)'}">${esc(S.cloudSyncMsg)}</div>`:''}
+      </div>
+      <div style="background:rgba(108,63,199,.07);border:1px solid rgba(108,63,199,.2);border-radius:11px;padding:14px"><div style="font-weight:700;font-size:13px;color:var(--accent);margin-bottom:6px">📄 Exportar/Importar manual (arquivo JSON)</div><div style="font-size:12px;color:var(--muted);line-height:1.7">Alternativa sem sincronização automática: 1. <b>Exporte</b> aqui → salve no Google Drive / iCloud<br>2. No outro aparelho, abra o app e <b>Importe</b></div></div>
       <div class="grid-2" style="display:grid;gap:12px">
         <button id="btn-export" style="padding:16px;border-radius:11px;border:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;align-items:center;gap:8px"><div style="color:var(--accent)">${ic('download','var(--accent)').replace('16','24').replace('16','24')}</div><div style="font-weight:700;font-size:13px;color:var(--accent)">Exportar</div><div style="font-size:11px;color:var(--muted);text-align:center">${total} registros</div></button>
         <button id="btn-import-trigger" style="padding:16px;border-radius:11px;border:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;align-items:center;gap:8px"><div style="color:var(--green)">${ic('upload','var(--green)').replace('16','24').replace('16','24')}</div><div style="font-weight:700;font-size:13px;color:var(--green)">Importar</div><div style="font-size:11px;color:var(--muted);text-align:center">Restaurar JSON</div></button>
@@ -2446,6 +2511,7 @@ function bindEvents(){
         restoreFocus('nome',pos);
       }
       else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;}
+      else if(n==='syncCode'){LS.set('mf6-synccode',e.target.value);S.syncCode=e.target.value;}
       else if(n==='parcelas'){
         // Re-render apenas quando parcelas muda (muda a seção de recorrência), preservando o foco
         if(S.modal==='despesa'){
@@ -2548,6 +2614,20 @@ function bindEvents(){
     const btnExp=document.getElementById('btn-export');if(btnExp)btnExp.addEventListener('click',exportData);
     const btnImpTrig=document.getElementById('btn-import-trigger');if(btnImpTrig)btnImpTrig.addEventListener('click',()=>document.getElementById('import-file')?.click());
     const impFile=document.getElementById('import-file');if(impFile)impFile.addEventListener('change',e=>{const f=e.target.files[0];if(f)importData(f);});
+    // Cloud sync — gerar código / sincronizar agora
+    const btnGenCode=document.getElementById('btn-gen-synccode');
+    if(btnGenCode)btnGenCode.addEventListener('click',()=>{
+      const code=genSyncCode();
+      LS.set('mf6-synccode',code);
+      setState({syncCode:code,cloudSyncMsg:''});
+      cloudPush();
+    });
+    const btnSyncNow=document.getElementById('btn-sync-now');
+    if(btnSyncNow)btnSyncNow.addEventListener('click',async ()=>{
+      setState({cloudSyncMsg:'⏳ Buscando dados da nuvem...'});
+      const ok=await cloudPull();
+      setState({cloudSyncMsg:ok?'✅ Dados atualizados da nuvem':'❌ Nenhum dado encontrado na nuvem ainda (envie algo primeiro)'});
+    });
   }
   // Import extrato — fora do bloco modal, funciona na página de Cartões
   const btnImpExt=document.getElementById('btn-import-ext');
@@ -3066,6 +3146,9 @@ if(typeof google !== 'undefined' && google.script){
 
 } else {
   render();
+  if(S.syncCode){
+    cloudPull().then(ok=>{ if(ok) render(); });
+  }
 }
 </script>
 </body>
