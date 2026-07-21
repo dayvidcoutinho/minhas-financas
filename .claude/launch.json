@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "financas-static",
+      "runtimeExecutable": "C:/Users/Dayvid/AppData/Local/Programs/Python/Python310/python",
+      "runtimeArgs": ["-m", "http.server", "8743"],
+      "port": 8743
+    }
+  ]
+}

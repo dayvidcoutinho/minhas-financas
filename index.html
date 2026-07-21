@@ -377,6 +377,7 @@ const PAL=['#4e2a9e','#00a86b','#3182ce','#dd6b20','#e53e3e','#0694a2','#805ad5'
 const BANK_C={Nubank:'#8b12d6',Itaú:'#ec7000',Bradesco:'#cc092f',Santander:'#e81f26','Banco do Brasil':'#f6bc00',Caixa:'#005ca9',C6:'#242424',Inter:'#ff6b00',XP:'#1c1c1e',BTG:'#1d3461',Neon:'#00d4aa',PicPay:'#11c76f',Outro:'#718096'};
 const BANKS=Object.keys(BANK_C),BRANDS=['Visa','Mastercard','Elo','American Express','Hipercard','Outro'];
 const CAT_CARD=['Restaurante','Padaria','Lanchonete','Supermercado','Hortifruti','Açougue','Alimentação','Farmácia','Saúde','Academia','Beleza','Combustível','Transporte','Lazer','Bebidas','Eletrônicos','Tecnologia','Casa','Vestuário','Viagem','Assinatura','Educação','Outros'];
+const IMPORT_CATS=['Alimentação','Supermercado','Transporte','Lazer','Saúde','Educação','Tecnologia','Casa','Vestuário','Viagem','Combustível','Assinatura','Beleza','Outros'];
 const CAT_FIX=[
   // 🏠 Moradia
   'Aluguel','Condomínio','IPTU','Financiamento Imóvel',
@@ -580,6 +581,9 @@ let S = {
   syncMsg:  '',
   importRows: [],
   importCardId: '',
+  importSource: '',
+  stmtScanLoad: false,
+  stmtScanErr: '',
   editId: null,
   customCats: LS.get('mf6-cats')||{card:[],fix:[],var:[],inc:[]},
   investFilter: 'Todos',
@@ -1384,11 +1388,13 @@ function pageCartoes(){
     <div class="page-head">
       <div class="text-xs text-muted">${S.cartoes.length} cartão(ões) · Fatura: <span class="mono fw-700" style="color:var(--blue)">${fmt(totCa)}</span></div>
       <div class="row gap-8">
-        <button class="${btnC('ghost')}" id="btn-import-ext">${ic('upload','var(--muted)')}Importar Extrato</button>
+        <button class="${btnC('ai')}" id="btn-import-ext" ${S.stmtScanLoad||!S.cartoes.length?'disabled':''}>${S.stmtScanLoad?ic('spin','#fff')+' Lendo extrato...':ic('camera','#fff')+'Importar Extrato com IA'}</button>
         <button class="${btnC('outline')}" data-modal="lanc" ${!S.cartoes.length?'disabled':''}>${ic('plus','var(--accent)')}Lançar</button>
         <button class="${btnC('primary')}" data-modal="cartao">${ic('plus','#fff')}Novo Cartão</button>
       </div>
     </div>
+    ${S.stmtScanErr?`<div class="panel mb-16" style="padding:12px 16px;border-color:rgba(245,158,11,.3);background:var(--amber-lt);font-size:12px;color:var(--amber);font-weight:600">⚠️ ${esc(S.stmtScanErr)}</div>`:''}
+    ${!S.cartoes.length?`<div class="text-xs text-muted mb-16">Cadastre um cartão para poder importar extratos.</div>`:''}
     ${reembSection}${cards}${recentes}`;
 }
 
@@ -2420,7 +2426,7 @@ function bindEvents(){
   }
   // Import extrato — fora do bloco modal, funciona na página de Cartões
   const btnImpExt=document.getElementById('btn-import-ext');
-  if(btnImpExt) btnImpExt.addEventListener('click',()=>loadImportData(C6_DATA));
+  if(btnImpExt) btnImpExt.addEventListener('click',triggerStatementScan);
   // Invest filters
   document.querySelectorAll('[data-inv-filter]').forEach(el=>el.addEventListener('click',()=>{setState({investFilter:el.dataset.invFilter});}));
   // Em Alta / Em Baixa toggle filter
@@ -2572,7 +2578,7 @@ async function runAgent(){
   const {totR,totD,totCa,saldo,totI}=derived();
   setState({aiLoad:true,aiText:''});
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:800,messages:[{role:'user',content:`Consultor financeiro BR. Analise:\n${S.invest.map(x=>`- ${x.nome||x.subtipo}: ${fmt(x.valor)} | ${x.tipo}/${x.subtipo} | ${x.retorno}% a.a.`).join('\n')}\nRenda: ${fmt(totR)} | Gastos: ${fmt(totD+totCa)} | Saldo: ${fmt(saldo)} | Patrimônio: ${fmt(totI)}\n\n1.📊Avaliação/10\n2.🎯Diversificação\n3.⚠️Riscos\n4.💡Recomendações(Selic/CDI/IPCA)\n5.📈Perspectiva`}]})});
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:800,messages:[{role:'user',content:`Consultor financeiro BR. Analise:\n${S.invest.map(x=>`- ${x.nome||x.subtipo}: ${fmt(x.valor)} | ${x.tipo}/${x.subtipo} | ${x.retorno}% a.a.`).join('\n')}\nRenda: ${fmt(totR)} | Gastos: ${fmt(totD+totCa)} | Saldo: ${fmt(saldo)} | Patrimônio: ${fmt(totI)}\n\n1.📊Avaliação/10\n2.🎯Diversificação\n3.⚠️Riscos\n4.💡Recomendações(Selic/CDI/IPCA)\n5.📈Perspectiva`}]})});
     const d=await res.json();const txt=d.content?.[0]?.text||'Erro.';LS.set('mf6-ai',txt);setState({aiLoad:false,aiText:txt});
   }catch{setState({aiLoad:false,aiText:'Erro de conexão.'});}
 }
@@ -2618,7 +2624,7 @@ async function fetchCotacoes(){
     const lista = tickers.slice(0,15).join(', ');
     const res = await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01'},
+      headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({
         model:'claude-haiku-4-5-20251001',
         max_tokens:1024,
@@ -2678,7 +2684,7 @@ function triggerScan(type){
       const prompt=type==='purchase'
         ?`Analise este comprovante. Retorne SOMENTE JSON sem markdown:\n{"descricao":"string","valor":number,"data":"YYYY-MM-DD","categoria":"uma de: Alimentação,Supermercado,Transporte,Lazer,Saúde,Educação,Tecnologia,Casa,Vestuário,Viagem,Combustível,Assinatura,Beleza,Outros","parcelas":number}\nValor decimal. Data: ${today()} se não encontrar. Parcelas: 1 se não houver.`
         :`Analise este extrato de investimento. Retorne SOMENTE JSON:\n{"nome":"string","tipo":"uma de: Renda Fixa,Renda Variável,Fundos,Cripto,Imóveis","subtipo":"string","valor":number,"retorno":number}`;
-      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:300,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:prompt}]}]})});
+      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:300,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:prompt}]}]})});
       const d=await res.json();
       const parsed=JSON.parse((d.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim());
       if(type==='purchase'){if(parsed.valor)S.form.valor=String(parsed.valor);if(parsed.descricao)S.form.descricao=parsed.descricao;if(parsed.data)S.form.data=parsed.data;if(parsed.categoria&&CAT_CARD.includes(parsed.categoria))S.form.categoria=parsed.categoria;if(parsed.parcelas&&+parsed.parcelas>1)S.form.parcelas=String(parsed.parcelas);}
@@ -2690,44 +2696,40 @@ function triggerScan(type){
   scanFileInput.click();
 }
 
-// ── C6 Data embutida ──────────────────────────────────────────────────────────
-const C6_DATA = {
-  source: "C6 Bank - Cartão Final 8401",
-  mes: "2026-08",
-  lancamentos: [
-    // ── 25/06 ──
-    {data:"2026-06-25",descricao:"IFD*IFOOD CLUB",valor:5.95,categoria:"Assinatura"},
-    {data:"2026-06-25",descricao:"DL *UBERRIDES",valor:34.99,categoria:"Transporte"},
-    {data:"2026-06-25",descricao:"MAGIC KIDS",valor:70.00,categoria:"Lazer"},
-    {data:"2026-06-25",descricao:"DL*UBERRIDES",valor:18.97,categoria:"Transporte"},
-    {data:"2026-06-25",descricao:"DL *UBERRIDES",valor:93.98,categoria:"Transporte"},
-    {data:"2026-06-25",descricao:"DL*UBERRIDES",valor:70.97,categoria:"Transporte"},
-    {data:"2026-06-25",descricao:"DL*UBERRIDES",valor:41.98,categoria:"Transporte"},
-    // ── 26/06 ──
-    {data:"2026-06-26",descricao:"MULTA CONTRATUAL",valor:89.20,categoria:"Outros"},
-    {data:"2026-06-26",descricao:"DL*UBERRIDES",valor:33.98,categoria:"Transporte"},
-    {data:"2026-06-26",descricao:"DL*UBERRIDES",valor:36.99,categoria:"Transporte"},
-    {data:"2026-06-26",descricao:"DL *UBERRIDES",valor:58.98,categoria:"Transporte"},
-    {data:"2026-06-26",descricao:"UBER *TRIP HELP.U",valor:50.99,categoria:"Transporte"},
-    {data:"2026-06-26",descricao:"DL*UBERRIDES",valor:72.99,categoria:"Transporte"},
-    // ── 27/06 ──
-    {data:"2026-06-27",descricao:"DL *UBERRIDES",valor:34.98,categoria:"Transporte"},
-    {data:"2026-06-27",descricao:"D TOLEDO LTDA",valor:41.99,categoria:"Supermercado"},
-    {data:"2026-06-27",descricao:"TRANCOSO E FREITAS MER",valor:9.50,categoria:"Supermercado"},
-    {data:"2026-06-27",descricao:"MP *FARMACIAHEBRO",valor:7.50,categoria:"Farmácia"},
-    // ── 28/06 ──
-    {data:"2026-06-28",descricao:"CELTAPADARIAE",valor:63.33,categoria:"Padaria"},
-    {data:"2026-06-28",descricao:"EC *SHELLBOX",valor:310.54,categoria:"Combustível"},
-    // ── 29/06 ──
-    {data:"2026-06-29",descricao:"AMAZON PRIME CANAIS",valor:22.45,categoria:"Assinatura"},
-    // ── 01/07 ──
-    {data:"2026-07-01",descricao:"SMART FIT NOVA FR",valor:135.00,categoria:"Academia"},
-    // ── Parcelas ──
-    {data:"2026-05-22",descricao:"INDITEX BRASIL LTDA — parc. 3/5",valor:105.90,categoria:"Vestuário"},
-    {data:"2025-11-29",descricao:"GRUPO CASAS BAHIA 1350 — parc. 8/10",valor:153.67,categoria:"Eletrônicos"},
-  ]
-};
-
+// ── AI Statement Scan (múltiplos lançamentos de uma vez) ───────────────────────
+let stmtFileInput=null;
+function triggerStatementScan(){
+  if(!S.apiKey){setState({stmtScanErr:'Configure sua API Key nas Configurações (⚙️) primeiro.'});return;}
+  if(!stmtFileInput){stmtFileInput=document.createElement('input');stmtFileInput.type='file';stmtFileInput.accept='image/*';stmtFileInput.multiple=true;}
+  stmtFileInput.onchange=async e=>{
+    const files=[...e.target.files];
+    if(!files.length)return;
+    setState({stmtScanLoad:true,stmtScanErr:''});
+    try{
+      const imgs=await Promise.all(files.map(async f=>({b64:await toB64(f),mt:f.type||'image/jpeg'})));
+      const anoRef=(S.mes||curMo()).slice(0,4);
+      const prompt=`Analise estas imagens de um extrato ou fatura de cartão de crédito. Extraia TODOS os lançamentos/compras visíveis (ignore linhas de resumo, total da fatura, pagamento anterior e limite disponível).\nRetorne SOMENTE um array JSON, sem markdown, nesse formato exato:\n[{"data":"YYYY-MM-DD","descricao":"string","valor":number,"categoria":"uma de: ${IMPORT_CATS.join(',')}"}]\nRegras: valor sempre positivo e decimal (ex: 34.99). Se o ano não estiver visível, use ${anoRef}. Uma entrada por lançamento, na ordem em que aparecem nas imagens. Se houver múltiplas imagens, trate como páginas do mesmo extrato.`;
+      const content=[...imgs.map(im=>({type:'image',source:{type:'base64',media_type:im.mt,data:im.b64}})),{type:'text',text:prompt}];
+      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:4096,messages:[{role:'user',content}]})});
+      if(!res.ok) throw new Error('http-'+res.status);
+      const d=await res.json();
+      const raw=d.content?.find(b=>b.type==='text')?.text||'[]';
+      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+      const rows=(Array.isArray(parsed)?parsed:[]).filter(r=>r&&r.data&&(+r.valor)>0).map(r=>({
+        data:r.data, descricao:String(r.descricao||'Lançamento').slice(0,80),
+        valor:+(+r.valor).toFixed(2),
+        categoria:IMPORT_CATS.includes(r.categoria)?r.categoria:'Outros',
+      }));
+      if(!rows.length){setState({stmtScanLoad:false,stmtScanErr:'Não encontrei lançamentos nessas imagens. Tente fotos mais nítidas ou lance manualmente.'});return;}
+      setState({stmtScanLoad:false,stmtScanErr:''});
+      loadImportData({source:'Extrato via IA',mes:S.mes,lancamentos:rows});
+    }catch{
+      setState({stmtScanLoad:false,stmtScanErr:'Não foi possível ler o extrato. Tente novamente ou lance manualmente.'});
+    }
+    stmtFileInput.value='';
+  };
+  stmtFileInput.click();
+}
 
 function renderImportModal(){
   if(!S.importRows.length) return;
@@ -2740,7 +2742,7 @@ function renderImportModal(){
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal-box" style="max-width:620px">
       <div class="modal-head">
-        <span>Importar Extrato — ${C6_DATA.source||'Banco'}</span>
+        <span>Importar Extrato${S.importSource?' — '+esc(S.importSource):''}</span>
         <button id="btn-close-import" style="background:none;border:none;color:var(--muted);padding:4px;display:flex">${ic('x')}</button>
       </div>
       <div class="modal-body">
@@ -2780,7 +2782,7 @@ function renderImportModal(){
                 </td>
                 <td style="padding:8px 10px">
                   <select data-imp-cat="${i}" style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--bg);outline:none;color:var(--text)">
-                    ${['Alimentação','Supermercado','Transporte','Lazer','Saúde','Educação','Tecnologia','Casa','Vestuário','Viagem','Combustível','Assinatura','Beleza','Outros'].map(c=>`<option value="${c}" ${c===r.categoria?'selected':''}>${c}</option>`).join('')}
+                    ${IMPORT_CATS.map(c=>`<option value="${c}" ${c===r.categoria?'selected':''}>${c}</option>`).join('')}
                   </select>
                 </td>
                 <td style="padding:8px 10px;text-align:right;font-weight:700;font-family:var(--mono);color:${r.dup?'var(--orange)':'var(--red)'}">R$ ${r.valor.toFixed(2).replace('.',',')}</td>
@@ -2802,7 +2804,7 @@ function renderImportModal(){
 }
 
 function bindImportEvents(){
-  const close=()=>{setState({importRows:[]});};
+  const close=()=>{setState({importRows:[],importSource:''});};
   document.getElementById('btn-close-import')?.addEventListener('click',close);
   document.getElementById('btn-close-import2')?.addEventListener('click',close);
   document.getElementById('modal-overlay')?.addEventListener('click',e=>{if(e.target.id==='modal-overlay')close();});
@@ -2827,7 +2829,7 @@ function bindImportEvents(){
     const newLancs=toImport.map(r=>({
       id:uid(), cartaoId:S.importCardId, descricao:r.descricao,
       valor:r.valor, categoria:r.categoria, data:r.data,
-      mes:r.mes||'2026-05', parcelas:'1', reembolso:false
+      mes:r.mes||S.mes, parcelas:'1', reembolso:false
     }));
     S.lancs=[...newLancs,...S.lancs];
     save();
@@ -2840,8 +2842,9 @@ function loadImportData(d){
   const rows=d.lancamentos||[];
   if(!rows.length){alert('Nenhum lançamento encontrado.');return;}
   const isDup=l=>S.lancs.some(x=>x.data===l.data&&Math.abs(+x.valor-(+l.valor))<0.01);
-  const importRows=rows.map(l=>({...l,mes:d.mes||'2026-05',checked:!isDup(l),dup:isDup(l)}));
+  const importRows=rows.map(l=>({...l,mes:d.mes||S.mes,checked:!isDup(l),dup:isDup(l)}));
   if(!S.importCardId&&S.cartoes.length) S.importCardId=S.cartoes[0].id;
+  S.importSource=d.source||'';
   S.importRows=importRows;
   renderImportModal();
 }
@@ -2868,167 +2871,7 @@ function importData(file){
   r.readAsText(file);
 }
 
-// ── Itaú Personalité 2689 — Fatura Julho 2026 ────────────────────────────────
-const ITAU_DATA = {
-  source: "Itaú Personalité - Person Multiplo 2689",
-  mes: "2026-07",
-  lancamentos: [
-    // ── Img 2 — 29/06 ──
-    {data:"2026-06-29",descricao:"MERCADOLIVRE*MERCADOL",valor:63.89,categoria:"Compras Online"},
-    // ── Img 2 — 25/06 ──
-    {data:"2026-06-25",descricao:"INDITEX BRASIL LTD — parc. 2/5",valor:304.02,categoria:"Vestuário"},
-    // ── Img 2 — 20/06 ──
-    {data:"2026-06-20",descricao:"LOJAS RENNER FL 460 — parc. 2/2",valor:104.85,categoria:"Vestuário"},
-    // ── Img 2 — 18/06 ──
-    {data:"2026-06-18",descricao:"AZUL LINHAS JNZWHT — parc. 2/2",valor:1701.75,categoria:"Viagem"},
-    // ── Img 2 — 09/06 ──
-    {data:"2026-06-09",descricao:"ARMAZEM FRUTOS DA — parc. 2/8",valor:198.84,categoria:"Alimentação"},
-    // ── Img 2 — 08/06 (continua na img 1) ──
-    {data:"2026-06-08",descricao:"HOTEIS.COM — parc. 2/2",valor:4408.05,categoria:"Viagem"},
-    // ── Img 1 — 22/05 ──
-    {data:"2026-05-22",descricao:"CEA IPM 519 ECPC — parc. 3/3",valor:203.32,categoria:"Vestuário"},
-    // ── Img 1 — 16/05 ──
-    {data:"2026-05-16",descricao:"HOTEIS.COM — parc. 3/5",valor:1470.56,categoria:"Viagem"},
-    // ── Img 1 — 15/05 ──
-    {data:"2026-05-15",descricao:"GOL LINHAS A*FRZHX — parc. 3/3",valor:517.60,categoria:"Viagem"},
-    // ── Img 1 — 30/03 ──
-    {data:"2026-03-30",descricao:"AMAZON PRIME BR — parc. 4/12",valor:13.90,categoria:"Assinatura"},
-  ]
-};
-
-
-(function seedC6(){
-  // Mantido apenas para localStorage local — no GAS é chamado via runSeeds
-  if(typeof google !== 'undefined' && google.script) return;
-  if(LS.get('mf6-seed-c6-v5')) return;
-  const C6_ID = 'c6-cartao-8401';
-  if(!S.cartoes.find(c => c.id === C6_ID)){
-    S.cartoes = [...S.cartoes, {
-      id: C6_ID, nome: 'C6 Final 8401', banco: 'C6',
-      bandeira: 'Mastercard', limite: '10000',
-      fechamento: '28', vencimento: '05'
-    }];
-  }
-  const existKey = l => `${l.data}|${l.descricao}|${l.valor}`;
-  const existing = new Set(S.lancs.filter(l=>l.cartaoId===C6_ID).map(existKey));
-  let counter = 0;
-  const seedId = () => `c6-seed-${++counter}-${Math.random().toString(36).slice(2,5)}`;
-  const novos = C6_DATA.lancamentos
-    .filter(l => !existing.has(existKey({data:l.data,descricao:l.descricao,valor:l.valor})))
-    .map(l => ({
-      id: seedId(), cartaoId: C6_ID,
-      descricao: l.descricao, valor: l.valor,
-      categoria: l.categoria, data: l.data,
-      mes: C6_DATA.mes||'2026-06', parcelas: '1', reembolso: false,
-    }));
-  if(novos.length) S.lancs = [...S.lancs, ...novos];
-  save();
-  LS.set('mf6-seed-c6-v5', '1');
-})();
-
-// ── Seed Investimentos — Ações + FIIs + Renda Fixa Itaú (R$ 206.119,15) ─────
-const INVEST_DATA = [
-  // ── Renda Fixa (Itaú Personnalité) ──────────────────────────────────────
-  {nome:'CDB, Renda Fixa e Estruturados (Itaú)', tipo:'Renda Fixa', subtipo:'CDB % CDI',           valor:91460.25, retorno:'11.0'},
-  {nome:'Fundos de Investimento (Itaú)',          tipo:'Fundos',     subtipo:'Multimercado Macro',   valor:80035.81, retorno:'8.3'},
-  // ── Ações B3 ─────────────────────────────────────────────────────────────
-  {nome:'VALE3',  tipo:'Ações',subtipo:'Vale (VALE3)',             valor:5544.84, retorno:'28.4', qtd:69},
-  {nome:'SAPR11', tipo:'Ações',subtipo:'Sanepar (SAPR11)',         valor:1839.50, retorno:'97.4', qtd:50},
-  {nome:'BBDC4',  tipo:'Ações',subtipo:'Bradesco (BBDC4)',         valor:1746.00, retorno:'34.4', qtd:100},
-  {nome:'GGBR4',  tipo:'Ações',subtipo:'Gerdau (GGBR4)',           valor:1952.45, retorno:'23.5', qtd:85},
-  {nome:'BBAS3',  tipo:'Ações',subtipo:'Banco do Brasil (BBAS3)',  valor:2018.00, retorno:'15.2', qtd:100},
-  {nome:'TAEE11', tipo:'Ações',subtipo:'Taesa (TAEE11)',           valor:1869.84, retorno:'6.2',  qtd:49},
-  {nome:'AURE3',  tipo:'Ações',subtipo:'Auren (AURE3)',            valor:1373.90, retorno:'-0.9', qtd:110},
-  {nome:'OIBR3',  tipo:'Ações',subtipo:'Oi (OIBR3)',               valor:3.64,    retorno:'-99.9',qtd:28},
-  {nome:'MGLU3',  tipo:'Ações',subtipo:'Magalu (MGLU3)',           valor:326.50,  retorno:'-96.3',qtd:50},
-  // ── FIIs ─────────────────────────────────────────────────────────────────
-  {nome:'KNCR11', tipo:'FIIs', subtipo:'KNCR11 – Kinea CRI',      valor:1147.30, retorno:'9.4',  qtd:11},
-  {nome:'MXRF11', tipo:'FIIs', subtipo:'MXRF11 – Maxi Renda',     valor:2300.22, retorno:'1.6',  qtd:234},
-  {nome:'BTAL11', tipo:'FIIs', subtipo:'BTAL11 – BTG Ativos Liq.',valor:1340.70, retorno:'-0.4', qtd:15},
-  {nome:'RZAT11', tipo:'FIIs', subtipo:'RZAT11 – Riza Atena',     valor:958.80,  retorno:'-7.3', qtd:10},
-  {nome:'HGLG11', tipo:'FIIs', subtipo:'HGLG11 – CSHG Logística', valor:3399.00, retorno:'-2.9', qtd:22},
-  {nome:'PMLL11', tipo:'FIIs', subtipo:'PMLL11 – Palma Logística',valor:2133.40, retorno:'-6.6', qtd:20},
-  {nome:'CPTS11', tipo:'FIIs', subtipo:'CPTS11 – Capitânia',      valor:2257.50, retorno:'-7.1', qtd:301},
-  {nome:'RZTR11', tipo:'FIIs', subtipo:'RZTR11 – Riza Terrax',    valor:1532.04, retorno:'-11.1',qtd:17},
-  {nome:'HABT11', tipo:'FIIs', subtipo:'HABT11 – Habitar',        valor:588.56,  retorno:'-27.2',qtd:8},
-  {nome:'VGIP11', tipo:'FIIs', subtipo:'VGIP11 – Valora IP',      valor:1774.74, retorno:'-15.0',qtd:22},
-  {nome:'TGAR11', tipo:'FIIs', subtipo:'TGAR11 – TG Ativo Real',  valor:516.16,  retorno:'-46.2',qtd:8},
-  // ── ETFs internacionais (USD × R$5,80) ───────────────────────────────────
-  {nome:'BIL – T-Bill ETF',              tipo:'ETFs',          subtipo:'BIL – T-Bills (EUA)',              valor:531.0,   retorno:'5.2',  obs:'USD 91,55'},
-  {nome:'VTI – Vanguard Total Market',   tipo:'ETFs',          subtipo:'VTI – Global',                    valor:1460.27, retorno:'12.0', obs:'USD 251,77'},
-  // ── Ações internacionais (USD × R$5,80) ──────────────────────────────────
-  {nome:'AMZN – Amazon.com Inc.',        tipo:'Internacional', subtipo:'Ações EUA',                       valor:1488.63, retorno:'15.0', obs:'USD 256,66'},
-  {nome:'PLD – Prologis Inc',            tipo:'Internacional', subtipo:'Ações EUA',                       valor:826.91,  retorno:'8.0',  obs:'USD 142,57 · REIT logística'},
-  {nome:'TRNO – Terreno Realty Corp',    tipo:'Internacional', subtipo:'Ações EUA',                       valor:379.90,  retorno:'8.0',  obs:'USD 65,50 · REIT industrial'},
-  {nome:'REXR – Rexford Industrial',     tipo:'Internacional', subtipo:'Ações EUA',                       valor:204.28,  retorno:'8.0',  obs:'USD 35,22 · REIT industrial'},
-  {nome:'KO – Coca-Cola Co',             tipo:'Internacional', subtipo:'Ações EUA',                       valor:477.75,  retorno:'8.0',  obs:'USD 82,37'},
-];
-
 // ── GAS init ─────────────────────────────────────────────────────────────────
-function runSeeds(){
-  // ── Seed C6 Final 8401 ────────────────────────────────────────────────────
-  (function seedC6(){
-    const C6_ID = 'c6-cartao-8401';
-    if(!S.cartoes.find(c => c.id === C6_ID)){
-      S.cartoes = [...S.cartoes, {
-        id: C6_ID, nome: 'C6 Final 8401', banco: 'C6',
-        bandeira: 'Mastercard', limite: '10000',
-        fechamento: '28', vencimento: '05'
-      }];
-    }
-    const existKey = l => `${l.data}|${l.descricao}|${+l.valor}`;
-    const existing = new Set(S.lancs.filter(l=>l.cartaoId===C6_ID).map(existKey));
-    let ct = 0;
-    const novos = C6_DATA.lancamentos
-      .filter(l => !existing.has(existKey(l)))
-      .map(l => ({
-        id: `c6-${++ct}-${Math.random().toString(36).slice(2,5)}`,
-        cartaoId: C6_ID, descricao: l.descricao, valor: l.valor,
-        categoria: l.categoria, data: l.data,
-        mes: C6_DATA.mes||'2026-06', parcelas: l.parcelas||'1', reembolso: false
-      }));
-    if(novos.length) S.lancs = [...S.lancs, ...novos];
-  })();
-
-  // ── Seed Itaú Personalité 2689 ────────────────────────────────────────────
-  (function seedItau(){
-    const ITAU_ID = 'itau-personalite-2689';
-    if(!S.cartoes.find(c => c.id === ITAU_ID)){
-      S.cartoes = [...S.cartoes, {
-        id: ITAU_ID, nome: 'Personalité 2689', banco: 'Itaú',
-        bandeira: 'Visa', limite: '15000', fechamento: '29', vencimento: '06'
-      }];
-    }
-    const existKey = l => `${l.data}|${l.descricao}|${+l.valor}`;
-    const existing = new Set(S.lancs.filter(l=>l.cartaoId===ITAU_ID).map(existKey));
-    let ct = 0;
-    const novos = ITAU_DATA.lancamentos
-      .filter(l => !existing.has(existKey(l)))
-      .map(l => ({
-        id: `itau-${++ct}-${Math.random().toString(36).slice(2,5)}`,
-        cartaoId: ITAU_ID, descricao: l.descricao, valor: l.valor,
-        categoria: l.categoria, data: l.data,
-        mes: ITAU_DATA.mes, parcelas: l.parcelas||'1', reembolso: false
-      }));
-    if(novos.length) S.lancs = [...S.lancs, ...novos];
-  })();
-
-  // ── Seed Investimentos ────────────────────────────────────────────────────
-  (function seedInvest(){
-    const jaExistem = new Set(S.invest.map(x=>x.nome));
-    const novos = INVEST_DATA.filter(x => !jaExistem.has(x.nome));
-    if(!novos.length) return;
-    let ct = S.invest.length;
-    const newItems = novos.map(x => ({
-      id: `inv-${++ct}-${Math.random().toString(36).slice(2,5)}`,
-      nome: x.nome, tipo: x.tipo, subtipo: x.subtipo,
-      valor: x.valor, retorno: x.retorno, qtd: x.qtd||undefined,
-      dataInicio: '2026-05-19',
-    }));
-    S.invest = [...S.invest, ...newItems];
-  })();
-}
-
 if(typeof google !== 'undefined' && google.script){
   document.body.insertAdjacentHTML('beforeend',`
     <div id="gas-loading" style="position:fixed;inset:0;background:var(--nav);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
@@ -3057,27 +2900,6 @@ if(typeof google !== 'undefined' && google.script){
       }catch(e){ console.error('GAS parse error:', e); }
     }
 
-    // ── Detectar e corrigir lançamentos no cartão errado ──────────────────
-    // Se o C6 não tem lançamentos mas o Itaú tem, redistribuir
-    const C6_ID = 'c6-cartao-8401';
-    const ITAU_ID = 'itau-personalite-2689';
-    const lancsC6 = S.lancs.filter(l=>l.cartaoId===C6_ID);
-    const lancsItau = S.lancs.filter(l=>l.cartaoId===ITAU_ID);
-
-    if(lancsC6.length === 0 && lancsItau.length > 0 && C6_DATA.lancamentos.length > 0){
-      // Identificar quais lançamentos do Itaú pertencem ao C6
-      const c6Keys = new Set(C6_DATA.lancamentos.map(l=>`${l.descricao}|${l.valor}`));
-      S.lancs = S.lancs.map(l => {
-        if(l.cartaoId === ITAU_ID && c6Keys.has(`${l.descricao}|${l.valor}`)){
-          return {...l, cartaoId: C6_ID, id: `c6-fix-${Math.random().toString(36).slice(2,7)}`};
-        }
-        return l;
-      });
-    }
-
-    // Sempre roda seeds — idempotentes
-    runSeeds();
-
     const payload = JSON.stringify({
       receitas: S.receitas, despesas: S.despesas,
       cartoes: S.cartoes, lancs: S.lancs, invest: S.invest,
@@ -3100,7 +2922,6 @@ if(typeof google !== 'undefined' && google.script){
     .loadData();
 
 } else {
-  runSeeds();
   render();
 }
 </script>
