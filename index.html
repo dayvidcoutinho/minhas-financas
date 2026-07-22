@@ -613,6 +613,8 @@ let S = {
   budgets: LS.get('mf6-budgets')||{},
   syncCode: LS.get('mf6-synccode')||'',
   cloudSyncMsg: '',
+  loginBusy: false,
+  loginErr: '',
 };
 
 const save=()=>{
@@ -639,10 +641,6 @@ const save=()=>{
 };
 
 // ── Cloud Sync (Cloudflare KV via /api/sync, Pages Function) ───────────────────
-const genSyncCode=()=>{
-  const chars='23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
-  return Array.from({length:20},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
-};
 function cloudApply(d){
   if(!d) return false;
   if(d.receitas) S.receitas=d.receitas;
@@ -2367,14 +2365,13 @@ function renderModal(){
     const total=S.receitas.length+S.despesas.length+S.lancs.length+S.invest.length;
     body=`<h3>Exportar / Importar</h3>
       <div style="background:rgba(6,148,162,.08);border:1px solid rgba(6,148,162,.25);border-radius:11px;padding:14px">
-        <div style="font-weight:700;font-size:13px;color:var(--teal);margin-bottom:6px">☁️ Sincronização automática</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px">Defina um código e use o <b>mesmo código</b> em todos os aparelhos — os dados sincronizam sozinhos, sem precisar exportar/importar. Guarde esse código com cuidado: quem tiver ele acessa seus dados.</div>
-        ${inp('Código de sincronização','syncCode','text',S.syncCode||'','Gere um código abaixo')}
+        <div style="font-weight:700;font-size:13px;color:var(--teal);margin-bottom:6px">☁️ Sua conta</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px">Use a <b>mesma senha</b> em todos os aparelhos — os dados sincronizam sozinhos, sem precisar exportar/importar. Guarde-a com cuidado: quem tiver ela acessa seus dados.</div>
+        ${inp('Senha','syncCode','text',S.syncCode||'','Mínimo 8 caracteres')}
         <div class="row gap-8 mt-8">
-          <button id="btn-gen-synccode" class="${btnC('ghost','sm')}">🎲 Gerar código aleatório</button>
-          ${S.syncCode?`<button id="btn-sync-now" class="${btnC('teal','sm')}">${ic('sync','#fff')}Sincronizar agora</button>`:''}
+          ${S.syncCode?`<button id="btn-sync-now" class="${btnC('teal','sm')}">${ic('sync','#fff')}Sincronizar agora</button><button id="btn-logout" class="${btnC('ghost','sm')}">Sair</button>`:''}
         </div>
-        ${S.syncCode?`<div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600">✓ Sincronização ativa — mudanças são enviadas automaticamente</div>`:''}
+        ${S.syncCode?`<div style="font-size:11px;color:var(--green);margin-top:8px;font-weight:600">✓ Conectado — mudanças são enviadas automaticamente</div>`:''}
         ${S.cloudSyncMsg?`<div style="font-size:12px;margin-top:8px;font-weight:600;color:${S.cloudSyncMsg.startsWith('❌')?'var(--red)':'var(--green)'}">${esc(S.cloudSyncMsg)}</div>`:''}
       </div>
       <div style="background:rgba(108,63,199,.07);border:1px solid rgba(108,63,199,.2);border-radius:11px;padding:14px"><div style="font-weight:700;font-size:13px;color:var(--accent);margin-bottom:6px">📄 Exportar/Importar manual (arquivo JSON)</div><div style="font-size:12px;color:var(--muted);line-height:1.7">Alternativa sem sincronização automática: 1. <b>Exporte</b> aqui → salve no Google Drive / iCloud<br>2. No outro aparelho, abra o app e <b>Importe</b></div></div>
@@ -2434,7 +2431,52 @@ function renderTopbar(){
     </div>`;
 }
 
+// ── Login Gate (senha = chave de sincronização na nuvem) ───────────────────────
+function renderLoginGate(){
+  const sidebar=document.getElementById('sidebar');
+  sidebar.innerHTML=''; sidebar.style.display='none';
+  document.getElementById('app-main').style.marginLeft='0';
+  document.getElementById('mobile-nav').innerHTML='';
+  document.getElementById('topbar').innerHTML='';
+  document.getElementById('modal-root').innerHTML='';
+  const main=document.getElementById('main');
+  main.className='au';
+  main.innerHTML=`
+    <div style="min-height:calc(100vh - 20px);display:flex;align-items:center;justify-content:center;padding:20px">
+      <div class="w-card" style="max-width:380px;width:100%;padding:32px 28px">
+        <div style="text-align:center">
+          <div class="sb-logo-icon" style="margin:0 auto 18px">${ic('wallet','#fff')}</div>
+          <div style="font-size:20px;font-weight:800;margin-bottom:6px">Minhas Finanças</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:24px">Digite sua senha para entrar. Na primeira vez, essa senha <b>cria</b> sua conta — use a mesma em todos os aparelhos.</div>
+        </div>
+        <div class="inp-wrap" style="margin-bottom:14px">
+          <label>Senha</label>
+          <input id="login-pass" type="password" placeholder="Mínimo 8 caracteres"/>
+        </div>
+        <button id="btn-login" class="btn btn-primary" style="width:100%;justify-content:center" ${S.loginBusy?'disabled':''}>${S.loginBusy?'Entrando...':'Entrar'}</button>
+        ${S.loginErr?`<div style="font-size:12px;color:var(--red);margin-top:10px;text-align:center">${esc(S.loginErr)}</div>`:''}
+        <div style="font-size:11px;color:var(--muted);margin-top:18px;text-align:center">Guarde essa senha — sem ela você não recupera seus dados em outro aparelho.</div>
+      </div>
+    </div>`;
+  const pass=document.getElementById('login-pass');
+  const doLogin=async ()=>{
+    const val=(document.getElementById('login-pass').value||'').trim();
+    if(val.length<8){ setState({loginErr:'A senha precisa ter pelo menos 8 caracteres.'}); return; }
+    setState({loginBusy:true,loginErr:''});
+    S.syncCode=val; LS.set('mf6-synccode',val);
+    await cloudPull(); // traz os dados já existentes se essa senha já foi usada em outro aparelho
+    save(); // garante que a conta exista na nuvem mesmo se for a primeira vez
+    setState({loginBusy:false});
+  };
+  document.getElementById('btn-login').addEventListener('click',doLogin);
+  pass.addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+  pass.focus();
+}
+
 function render(){
+  if(!IS_GAS && !S.syncCode){ renderLoginGate(); return; }
+  document.getElementById('sidebar').style.display='';
+  document.getElementById('app-main').style.marginLeft='';
   renderSidebar();
   renderMobileNav();
   renderTopbar();
@@ -2614,19 +2656,19 @@ function bindEvents(){
     const btnExp=document.getElementById('btn-export');if(btnExp)btnExp.addEventListener('click',exportData);
     const btnImpTrig=document.getElementById('btn-import-trigger');if(btnImpTrig)btnImpTrig.addEventListener('click',()=>document.getElementById('import-file')?.click());
     const impFile=document.getElementById('import-file');if(impFile)impFile.addEventListener('change',e=>{const f=e.target.files[0];if(f)importData(f);});
-    // Cloud sync — gerar código / sincronizar agora
-    const btnGenCode=document.getElementById('btn-gen-synccode');
-    if(btnGenCode)btnGenCode.addEventListener('click',()=>{
-      const code=genSyncCode();
-      LS.set('mf6-synccode',code);
-      setState({syncCode:code,cloudSyncMsg:''});
-      cloudPush();
-    });
+    // Cloud sync — sincronizar agora / sair
     const btnSyncNow=document.getElementById('btn-sync-now');
     if(btnSyncNow)btnSyncNow.addEventListener('click',async ()=>{
       setState({cloudSyncMsg:'⏳ Buscando dados da nuvem...'});
       const ok=await cloudPull();
       setState({cloudSyncMsg:ok?'✅ Dados atualizados da nuvem':'❌ Nenhum dado encontrado na nuvem ainda (envie algo primeiro)'});
+    });
+    const btnLogout=document.getElementById('btn-logout');
+    if(btnLogout)btnLogout.addEventListener('click',()=>{
+      if(!confirm('Sair? Você vai precisar digitar a senha de novo para ver seus dados neste aparelho (os dados continuam salvos na nuvem).'))return;
+      localStorage.removeItem('mf6-synccode');
+      S.syncCode='';
+      setState({modal:null});
     });
   }
   // Import extrato — fora do bloco modal, funciona na página de Cartões
