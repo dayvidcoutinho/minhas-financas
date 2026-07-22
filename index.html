@@ -654,10 +654,12 @@ function cloudApply(d){
   if(d.investHistorico) S.investHistorico=d.investHistorico;
   if(d.reservaMeses) S.reservaMeses=d.reservaMeses;
   if(d.budgets) S.budgets=d.budgets;
+  if(d.apiKey) S.apiKey=d.apiKey;
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
   LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
+  if(d.apiKey) LS.set('mf6-key',S.apiKey);
   return true;
 }
 async function cloudPull(){
@@ -679,7 +681,7 @@ function cloudPush(){
         receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
         lancs:S.lancs, invest:S.invest, customCats:S.customCats,
         investMetas:S.investMetas, investAporte:S.investAporte, investHistorico:S.investHistorico,
-        reservaMeses:S.reservaMeses, budgets:S.budgets,
+        reservaMeses:S.reservaMeses, budgets:S.budgets, apiKey:S.apiKey,
       });
       const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
       _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
@@ -2563,7 +2565,7 @@ function bindEvents(){
         render();
         restoreFocus('nome',pos);
       }
-      else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;}
+      else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;cloudPush();}
       else if(n==='syncCode'){LS.set('mf6-synccode',e.target.value);S.syncCode=e.target.value;}
       else if(n==='parcelas'){
         // Re-render apenas quando parcelas muda (muda a seção de recorrência), preservando o foco
