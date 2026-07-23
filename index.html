@@ -569,6 +569,26 @@ const inits=s=>(s||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(
 const LS={get:k=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}};
 const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const toB64=file=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
+// Redimensiona fotos grandes (comuns em celular) antes de enviar pra IA — evita estourar limite de tamanho da API
+const resizeImageFile=(file,maxDim=1600,quality=0.85)=>new Promise((resolve,reject)=>{
+  const img=new Image();
+  const url=URL.createObjectURL(file);
+  img.onload=()=>{
+    let {width,height}=img;
+    if(width>maxDim||height>maxDim){
+      if(width>height){height=Math.round(height*maxDim/width);width=maxDim;}
+      else{width=Math.round(width*maxDim/height);height=maxDim;}
+    }
+    const canvas=document.createElement('canvas');
+    canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0,width,height);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('canvas-toblob-failed')),'image/jpeg',quality);
+  };
+  img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('image-load-failed'));};
+  img.src=url;
+});
 
 // ── Google Apps Script detection ──────────────────────────────────────────────
 const IS_GAS = (typeof google !== 'undefined') && !!(google.script);
@@ -2961,17 +2981,27 @@ function triggerScan(type){
     const file=e.target.files[0];if(!file)return;
     setState({scanLoad:true,scanErr:'',scanImg:URL.createObjectURL(file)});
     try{
-      const b64=await toB64(file),mt=file.type||'image/jpeg';
+      let img=file;
+      try{ img=await resizeImageFile(file); }catch{ img=file; } // se o resize falhar, usa a foto original
+      const b64=await toB64(img),mt=img.type||'image/jpeg';
       const prompt=type==='purchase'
         ?`Analise este comprovante. Retorne SOMENTE JSON sem markdown:\n{"descricao":"string","valor":number,"data":"YYYY-MM-DD","categoria":"uma de: Alimentação,Supermercado,Transporte,Lazer,Saúde,Educação,Tecnologia,Casa,Vestuário,Viagem,Combustível,Assinatura,Beleza,Outros","parcelas":number}\nValor decimal. Data: ${today()} se não encontrar. Parcelas: 1 se não houver.`
         :`Analise este extrato de investimento. Retorne SOMENTE JSON:\n{"nome":"string","tipo":"uma de: Renda Fixa,Renda Variável,Fundos,Cripto,Imóveis","subtipo":"string","valor":number,"retorno":number}`;
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:300,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:prompt}]}]})});
+      if(!res.ok){
+        let detail='';
+        try{ const errBody=await res.json(); detail=errBody?.error?.message||''; }catch{}
+        throw new Error(detail||`http-${res.status}`);
+      }
       const d=await res.json();
       const parsed=JSON.parse((d.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim());
       if(type==='purchase'){if(parsed.valor)S.form.valor=String(parsed.valor);if(parsed.descricao)S.form.descricao=parsed.descricao;if(parsed.data)S.form.data=parsed.data;if(parsed.categoria&&CAT_CARD.includes(parsed.categoria))S.form.categoria=parsed.categoria;if(parsed.parcelas&&+parsed.parcelas>1)S.form.parcelas=String(parsed.parcelas);}
       else{if(parsed.nome)S.form.nome=parsed.nome;if(parsed.valor)S.form.valor=String(parsed.valor);if(parsed.retorno)S.form.retorno=String(parsed.retorno);if(parsed.tipo&&INV_T.includes(parsed.tipo)){S.form.tipo=parsed.tipo;S.form.subtipo=(INV_S[parsed.tipo]||[])[0]||'';}}
       setState({scanLoad:false,scanErr:''});
-    }catch{setState({scanLoad:false,scanErr:'Não foi possível ler a imagem. Preencha manualmente.'});}
+    }catch(err){
+      const msg=err?.message||'';
+      setState({scanLoad:false,scanErr:msg?`Erro: ${msg}`:'Não foi possível ler a imagem. Preencha manualmente.'});
+    }
     scanFileInput.value='';
   };
   scanFileInput.click();
@@ -2987,12 +3017,20 @@ function triggerStatementScan(cardId){
     if(!files.length)return;
     setState({stmtScanLoad:true,stmtScanErr:''});
     try{
-      const imgs=await Promise.all(files.map(async f=>({b64:await toB64(f),mt:f.type||'image/jpeg'})));
+      const imgs=await Promise.all(files.map(async f=>{
+        let img=f;
+        try{ img=await resizeImageFile(f); }catch{ img=f; } // se o resize falhar, usa a foto original
+        return {b64:await toB64(img),mt:img.type||'image/jpeg'};
+      }));
       const anoRef=(S.mes||curMo()).slice(0,4);
       const prompt=`Analise estas imagens de um extrato ou fatura de cartão de crédito. Extraia TODOS os lançamentos/compras visíveis (ignore linhas de resumo, total da fatura, pagamento anterior e limite disponível).\nRetorne SOMENTE um array JSON, sem markdown, nesse formato exato:\n[{"data":"YYYY-MM-DD","descricao":"string","valor":number,"categoria":"uma de: ${IMPORT_CATS.join(',')}"}]\nRegras: valor sempre positivo e decimal (ex: 34.99). Se o ano não estiver visível, use ${anoRef}. Uma entrada por lançamento, na ordem em que aparecem nas imagens. Se houver múltiplas imagens, trate como páginas do mesmo extrato.`;
       const content=[...imgs.map(im=>({type:'image',source:{type:'base64',media_type:im.mt,data:im.b64}})),{type:'text',text:prompt}];
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:4096,messages:[{role:'user',content}]})});
-      if(!res.ok) throw new Error('http-'+res.status);
+      if(!res.ok){
+        let detail='';
+        try{ const errBody=await res.json(); detail=errBody?.error?.message||''; }catch{}
+        throw new Error(detail||`http-${res.status}`);
+      }
       const d=await res.json();
       const raw=d.content?.find(b=>b.type==='text')?.text||'[]';
       const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
@@ -3005,8 +3043,9 @@ function triggerStatementScan(cardId){
       setState({stmtScanLoad:false,stmtScanErr:''});
       if(cardId) S.importCardId=cardId;
       loadImportData({source:'Extrato via IA',mes:S.mes,lancamentos:rows});
-    }catch{
-      setState({stmtScanLoad:false,stmtScanErr:'Não foi possível ler o extrato. Tente novamente ou lance manualmente.'});
+    }catch(err){
+      const msg=err?.message||'';
+      setState({stmtScanLoad:false,stmtScanErr:msg?`Erro ao ler o extrato: ${msg}`:'Não foi possível ler o extrato. Tente novamente ou lance manualmente.'});
     }
     stmtFileInput.value='';
   };
