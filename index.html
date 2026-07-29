@@ -623,9 +623,12 @@ let S = {
   cloudSyncMsg: '',
   loginBusy: false,
   loginErr: '',
+  updatedAt: LS.get('mf6-updated-at')||0,
 };
 
 const save=()=>{
+  S.updatedAt=Date.now();
+  LS.set('mf6-updated-at',S.updatedAt);
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
@@ -663,10 +666,12 @@ function cloudApply(d){
   if(d.reservaMeses) S.reservaMeses=d.reservaMeses;
   if(d.budgets) S.budgets=d.budgets;
   if(d.apiKey) S.apiKey=d.apiKey;
+  S.updatedAt=d.updatedAt||Date.now();
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
   LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
+  LS.set('mf6-updated-at',S.updatedAt);
   if(d.apiKey) LS.set('mf6-key',S.apiKey);
   return true;
 }
@@ -676,6 +681,13 @@ async function cloudPull(){
     const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{cache:'no-store'});
     if(!res.ok) return false;
     const d=await res.json();
+    if(!d) return false;
+    // Se o que está na nuvem não é mais novo que o que já temos localmente, não sobrescreve —
+    // isso evita perder edições locais recentes que ainda não tinham sido enviadas (ex: reload logo após salvar).
+    if(d.updatedAt && S.updatedAt && d.updatedAt<=S.updatedAt){
+      cloudPush();
+      return false;
+    }
     return cloudApply(d);
   }catch{ return false; }
 }
@@ -689,7 +701,7 @@ function cloudPush(){
         receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
         lancs:S.lancs, invest:S.invest, customCats:S.customCats,
         investMetas:S.investMetas, investAporte:S.investAporte, investHistorico:S.investHistorico,
-        reservaMeses:S.reservaMeses, budgets:S.budgets, apiKey:S.apiKey,
+        reservaMeses:S.reservaMeses, budgets:S.budgets, apiKey:S.apiKey, updatedAt:S.updatedAt,
       });
       const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
       _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
@@ -775,38 +787,45 @@ function derived(){
 // Uma despesa/lançamento marcado como "mensal" gera sozinho uma nova ocorrência
 // no mês selecionado (se ainda não existir uma), em vez de só exibir um rótulo.
 function materializeRecurring(){
-  const mes=S.mes;
-  const maxDay=new Date(+mes.slice(0,4),+mes.slice(5,7),0).getDate();
-  let changed=false;
+  // Protegido: qualquer erro aqui não pode impedir o app de carregar/mostrar os dados.
+  try{
+    const mes=S.mes;
+    if(!Array.isArray(S.despesas)||!Array.isArray(S.lancs)) return false;
+    const maxDay=new Date(+mes.slice(0,4),+mes.slice(5,7),0).getDate();
+    let changed=false;
 
-  const despTemplates=S.despesas.filter(x=>x.recorrencia==='mensal');
-  const seenD=new Set();
-  despTemplates.forEach(t=>{
-    const key=`${t.descricao}|${t.categoria}|${t.tipo}|${t.origem}`;
-    if(seenD.has(key)) return; seenD.add(key);
-    if(t.data && t.data.slice(0,7)>mes) return; // recorrência começa depois do mês selecionado
-    const jaExiste=S.despesas.some(x=>x.data?.startsWith(mes)&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.tipo===t.tipo&&x.origem===t.origem);
-    if(jaExiste) return;
-    const day=Math.min(+((t.data||'').slice(8,10))||1,maxDay);
-    S.despesas=[{...t,id:uid(),data:`${mes}-${String(day).padStart(2,'0')}`},...S.despesas];
-    changed=true;
-  });
+    const despTemplates=S.despesas.filter(x=>x&&x.recorrencia==='mensal');
+    const seenD=new Set();
+    despTemplates.forEach(t=>{
+      const key=`${t.descricao}|${t.categoria}|${t.tipo}|${t.origem}`;
+      if(seenD.has(key)) return; seenD.add(key);
+      if(t.data && t.data.slice(0,7)>mes) return; // recorrência começa depois do mês selecionado
+      const jaExiste=S.despesas.some(x=>x.data?.startsWith(mes)&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.tipo===t.tipo&&x.origem===t.origem);
+      if(jaExiste) return;
+      const day=Math.min(+((t.data||'').slice(8,10))||1,maxDay);
+      S.despesas=[{...t,id:uid(),data:`${mes}-${String(day).padStart(2,'0')}`},...S.despesas];
+      changed=true;
+    });
 
-  const lancTemplates=S.lancs.filter(x=>x.recorrencia==='mensal');
-  const seenL=new Set();
-  lancTemplates.forEach(t=>{
-    const key=`${t.cartaoId}|${t.descricao}|${t.categoria}|${t.origem}`;
-    if(seenL.has(key)) return; seenL.add(key);
-    if(t.mes && t.mes>mes) return;
-    const jaExiste=S.lancs.some(x=>x.mes===mes&&x.cartaoId===t.cartaoId&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.origem===t.origem);
-    if(jaExiste) return;
-    const day=Math.min(+((t.data||'').slice(8,10))||1,maxDay);
-    S.lancs=[{...t,id:uid(),mes,data:`${mes}-${String(day).padStart(2,'0')}`},...S.lancs];
-    changed=true;
-  });
+    const lancTemplates=S.lancs.filter(x=>x&&x.recorrencia==='mensal');
+    const seenL=new Set();
+    lancTemplates.forEach(t=>{
+      const key=`${t.cartaoId}|${t.descricao}|${t.categoria}|${t.origem}`;
+      if(seenL.has(key)) return; seenL.add(key);
+      if(t.mes && t.mes>mes) return;
+      const jaExiste=S.lancs.some(x=>x.mes===mes&&x.cartaoId===t.cartaoId&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.origem===t.origem);
+      if(jaExiste) return;
+      const day=Math.min(+((t.data||'').slice(8,10))||1,maxDay);
+      S.lancs=[{...t,id:uid(),mes,data:`${mes}-${String(day).padStart(2,'0')}`},...S.lancs];
+      changed=true;
+    });
 
-  if(changed) save();
-  return changed;
+    if(changed) save();
+    return changed;
+  }catch(err){
+    console.error('materializeRecurring falhou (ignorado, dados não foram afetados):', err);
+    return false;
+  }
 }
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
@@ -2541,6 +2560,7 @@ function renderLoginGate(){
     if(val.length<8){ setState({loginErr:'A senha precisa ter pelo menos 8 caracteres.'}); return; }
     setState({loginBusy:true,loginErr:''});
     S.syncCode=val; LS.set('mf6-synccode',val);
+    S.updatedAt=0; // reseta a "idade" local — login sempre deve confiar na nuvem dessa conta, se existir
     await cloudPull(); // traz os dados já existentes se essa senha já foi usada em outro aparelho
     materializeRecurring();
     save(); // garante que a conta exista na nuvem mesmo se for a primeira vez
@@ -3291,10 +3311,15 @@ if(typeof google !== 'undefined' && google.script){
     .loadData();
 
 } else {
-  materializeRecurring();
-  render();
+  render(); // mostra o que já existe localmente na hora, sem esperar a rede
   if(S.syncCode){
-    cloudPull().then(ok=>{ if(ok){ materializeRecurring(); } render(); });
+    // Só materializa recorrências DEPOIS de puxar a nuvem — senão, ao criar uma ocorrência
+    // localmente, a "idade" local fica mais nova que a nuvem e pode sobrescrever uma edição
+    // feita em outro aparelho enquanto este estava fechado.
+    cloudPull().finally(()=>{ materializeRecurring(); render(); });
+  } else {
+    materializeRecurring();
+    render();
   }
 }
 </script>
