@@ -742,7 +742,11 @@ function derived(){
   const totCa=S.cartoes.reduce((a,c)=>a+cardFat(c.id,S.mes,true),0); // só gastos pessoais
   const pendRe=S.lancs.filter(x=>x.reembolso&&!x.reembolsado);
   const totRe=pendRe.reduce((a,x)=>a+(+x.valor),0);
-  const saldo=totR-totD-totCa; // saldo livre real: receita menos despesas diretas e fatura do cartão
+  // Saldo livre = receita menos despesas diretas (pix/transferência/dinheiro/boleto).
+  // A fatura do cartão NÃO desconta aqui — ela só vira saída de caixa quando é paga
+  // (via "Pagar Fatura"), que lança uma despesa normal e entra em totD naquele mês.
+  // Sem isso, a compra no cartão seria descontada duas vezes: ao entrar na fatura e ao pagá-la.
+  const saldo=totR-totD;
   const taxaPoupanca=totR>0?(saldo/totR*100):0;
   const nextMes=(()=>{const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()+1);return d.toISOString().slice(0,7);})();
   const prevMes=(()=>{const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7);})();
