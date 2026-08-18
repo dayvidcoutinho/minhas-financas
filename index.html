@@ -392,7 +392,7 @@ const BANKS=Object.keys(BANK_C),BRANDS=['Visa','Mastercard','Elo','American Expr
 // para que a mesma categoria (ex: "Casa") apareça igual em qualquer tela.
 const CAT_EXP=[
   // 🏠 Casa
-  'Casa','Financiamento Imóvel','Internet / Telefone',
+  'Casa','Financiamento Imóvel','Internet / Telefone','Fatura Cartão',
   // 🍽️ Alimentação
   'Restaurante','Lanchonete','Padaria','Delivery','Supermercado','Hortifruti','Açougue','Alimentação','Bebidas',
   // 🚗 Transporte
@@ -625,6 +625,7 @@ let S = {
   despTipoFilter: 'Todos',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
   budgets: LS.get('mf6-budgets')||{},
+  faturaPaga: LS.get('mf6-fatura-paga')||{},
   syncCode: LS.get('mf6-synccode')||'',
   cloudSyncMsg: '',
   loginBusy: false,
@@ -638,7 +639,7 @@ const save=()=>{
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
-  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-fatura-paga',S.faturaPaga);
   // No GAS: salva direto sem lock para não perder dados
   if(typeof google !== 'undefined' && google.script){
     const payload=JSON.stringify({
@@ -646,7 +647,7 @@ const save=()=>{
       lancs:S.lancs, invest:S.invest, customCats:S.customCats,
       investMetas:S.investMetas, investHistorico:S.investHistorico,
       investAporte:S.investAporte, apiKey:S.apiKey,
-      reservaMeses:S.reservaMeses, budgets:S.budgets, v:'mf6'
+      reservaMeses:S.reservaMeses, budgets:S.budgets, faturaPaga:S.faturaPaga, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
@@ -671,12 +672,13 @@ function cloudApply(d){
   if(d.investHistorico) S.investHistorico=d.investHistorico;
   if(d.reservaMeses) S.reservaMeses=d.reservaMeses;
   if(d.budgets) S.budgets=d.budgets;
+  if(d.faturaPaga) S.faturaPaga=d.faturaPaga;
   if(d.apiKey) S.apiKey=d.apiKey;
   S.updatedAt=d.updatedAt||Date.now();
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
-  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-fatura-paga',S.faturaPaga);
   LS.set('mf6-updated-at',S.updatedAt);
   if(d.apiKey) LS.set('mf6-key',S.apiKey);
   return true;
@@ -707,7 +709,7 @@ function cloudPush(){
         receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
         lancs:S.lancs, invest:S.invest, customCats:S.customCats,
         investMetas:S.investMetas, investAporte:S.investAporte, investHistorico:S.investHistorico,
-        reservaMeses:S.reservaMeses, budgets:S.budgets, apiKey:S.apiKey, updatedAt:S.updatedAt,
+        reservaMeses:S.reservaMeses, budgets:S.budgets, faturaPaga:S.faturaPaga, apiKey:S.apiKey, updatedAt:S.updatedAt,
       });
       const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
       _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
@@ -1193,9 +1195,15 @@ function pageDashboard(){
       <div class="mono fw-800" style="font-size:18px;color:var(--blue)">${fmt(totCa)}</div>
     </div>
   </div>`:''}
-  ${faturaVencendo>0?`<div class="panel mb-16" style="border-color:rgba(244,63,94,.25);background:var(--red-lt)">
-    <div class="alert">${ic('alert','var(--red)')}<span style="flex:1;font-weight:600;font-size:13px;color:var(--red)">Fatura a pagar: <strong>${fmt(faturaVencendo)}</strong></span>
+  ${faturaVencendo>0 && !S.faturaPaga[prevMes]?`<div class="panel mb-16" style="border-color:rgba(244,63,94,.25);background:var(--red-lt)">
+    <div class="alert">${ic('alert','var(--red)')}<span style="flex:1;font-weight:600;font-size:13px;color:var(--red)">Fatura a pagar (${moLbl(prevMes)}): <strong>${fmt(faturaVencendo)}</strong></span>
+      <button id="btn-pagar-fatura" class="btn btn-green btn-sm">${ic('check','#fff')}Pagar Fatura</button>
       <button class="btn btn-ghost btn-sm" data-tab="cartoes">Ver →</button>
+    </div>
+  </div>`:''}
+  ${S.faturaPaga[prevMes]?`<div class="panel mb-16" style="border-color:rgba(34,197,94,.25);background:var(--green-lt)">
+    <div class="alert">${ic('check','var(--green)')}<span style="flex:1;font-weight:600;font-size:13px;color:var(--green)">Fatura de ${moLbl(prevMes)} paga — já descontada do saldo</span>
+      <button id="btn-desfazer-fatura" class="btn btn-ghost btn-sm">Desfazer</button>
     </div>
   </div>`:''}
   ${totRe>0?`<div class="panel mb-16" style="border-color:rgba(245,158,11,.25);background:var(--amber-lt)">
@@ -2614,6 +2622,27 @@ function bindEvents(){
   if(sbMes)sbMes.addEventListener('change',e=>onMesChange(e.target.value));
   const mobMes=document.getElementById('mob-mes');
   if(mobMes)mobMes.addEventListener('change',e=>onMesChange(e.target.value));
+  // Pagar fatura do cartão (mês anterior) — lança uma despesa que desconta do saldo do mês atual
+  const btnPagarFatura=document.getElementById('btn-pagar-fatura');
+  if(btnPagarFatura)btnPagarFatura.addEventListener('click',()=>{
+    const {faturaVencendo,prevMes}=derived();
+    if(faturaVencendo<=0||S.faturaPaga[prevMes]) return;
+    const id=uid();
+    S.despesas=[{id,tipo:'fixa',categoria:'Fatura Cartão',descricao:`Pagamento fatura de cartão — ${moLbl(prevMes)}`,valor:faturaVencendo,data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'},...S.despesas];
+    S.faturaPaga={...S.faturaPaga,[prevMes]:id};
+    save();render();
+  });
+  const btnDesfazerFatura=document.getElementById('btn-desfazer-fatura');
+  if(btnDesfazerFatura)btnDesfazerFatura.addEventListener('click',()=>{
+    const {prevMes}=derived();
+    const despesaId=S.faturaPaga[prevMes];
+    if(!despesaId) return;
+    S.despesas=S.despesas.filter(x=>x.id!==despesaId);
+    const rest={...S.faturaPaga};
+    delete rest[prevMes];
+    S.faturaPaga=rest;
+    save();render();
+  });
   // Card view
   document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView})));
   // Back
@@ -3254,13 +3283,13 @@ function loadImportFile(file){
 }
 
 function exportData(){
-  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,reservaMeses:S.reservaMeses,budgets:S.budgets,v:'mf6'},null,2)],{type:'application/json'});
+  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,reservaMeses:S.reservaMeses,budgets:S.budgets,faturaPaga:S.faturaPaga,v:'mf6'},null,2)],{type:'application/json'});
   const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`financas-${today()}.json`;a.click();URL.revokeObjectURL(u);
 }
 function importData(file){
   const r=new FileReader();
   r.onload=e=>{
-    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;if(d.reservaMeses)S.reservaMeses=d.reservaMeses;if(d.budgets)S.budgets=d.budgets;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
+    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;if(d.reservaMeses)S.reservaMeses=d.reservaMeses;if(d.budgets)S.budgets=d.budgets;if(d.faturaPaga)S.faturaPaga=d.faturaPaga;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
     catch{setState({syncMsg:'❌ Arquivo inválido ou corrompido.'});}
   };
   r.readAsText(file);
@@ -3294,6 +3323,7 @@ if(typeof google !== 'undefined' && google.script){
         if(d.apiKey)             S.apiKey    = d.apiKey;
         if(d.reservaMeses)       S.reservaMeses = d.reservaMeses;
         if(d.budgets)            S.budgets   = d.budgets;
+        if(d.faturaPaga)         S.faturaPaga = d.faturaPaga;
       }catch(e){ console.error('GAS parse error:', e); }
     }
 
@@ -3302,7 +3332,7 @@ if(typeof google !== 'undefined' && google.script){
       cartoes: S.cartoes, lancs: S.lancs, invest: S.invest,
       customCats: S.customCats, investMetas: S.investMetas,
       investHistorico: S.investHistorico, investAporte: S.investAporte,
-      apiKey: S.apiKey, reservaMeses: S.reservaMeses, budgets: S.budgets, v:'mf6'
+      apiKey: S.apiKey, reservaMeses: S.reservaMeses, budgets: S.budgets, faturaPaga: S.faturaPaga, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
