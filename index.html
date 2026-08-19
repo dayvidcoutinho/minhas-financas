@@ -840,6 +840,39 @@ function materializeRecurring(){
   }
 }
 
+// ── Parcelamentos ativos ────────────────────────────────────────────────────
+// Agrupa despesas/lançamentos parcelados (descrição termina em " (i/n)") pra mostrar
+// progresso, quanto falta e em que mês cada compra parcelada termina.
+function getInstallmentGroups(){
+  const PARSE=/^(.*) \((\d+)\/(\d+)\)$/;
+  const groups={};
+  const addItem=(item,source)=>{
+    const m=(item.descricao||'').match(PARSE);
+    if(!m) return;
+    const base=m[1], i=+m[2], n=+m[3];
+    if(n<=1) return;
+    const mes=source==='lanc'?item.mes:(item.data||'').slice(0,7);
+    if(!mes) return;
+    const key=`${source}|${item.cartaoId||''}|${base}|${item.categoria}|${n}`;
+    if(!groups[key]) groups[key]={base,categoria:item.categoria,n,source,cartaoId:item.cartaoId||null,itens:[]};
+    groups[key].itens.push({i,mes,valor:+item.valor});
+  };
+  S.despesas.forEach(x=>addItem(x,'despesa'));
+  S.lancs.forEach(x=>addItem(x,'lanc'));
+  return Object.values(groups).map(g=>{
+    g.itens.sort((a,b)=>a.i-b.i);
+    const mesFinal=g.itens[g.itens.length-1].mes;
+    const futuras=g.itens.filter(x=>x.mes>=S.mes);
+    const passadas=g.itens.filter(x=>x.mes<S.mes);
+    const restante=futuras.reduce((a,x)=>a+x.valor,0);
+    const pago=passadas.reduce((a,x)=>a+x.valor,0);
+    const valorParcela=g.itens[0]?.valor||0;
+    const atual=futuras[0]?.i||g.n;
+    return{...g,mesFinal,restante,pago,atual,valorParcela,valorTotal:valorParcela*g.n,
+      cardNome:g.cartaoId?(S.cartoes.find(c=>c.id===g.cartaoId)?.nome||''):null};
+  }).filter(g=>g.restante>0).sort((a,b)=>a.mesFinal.localeCompare(b.mesFinal));
+}
+
 // ── HTML helpers ──────────────────────────────────────────────────────────────
 const btnC=(v,sm='')=>`btn btn-${v}${sm?' btn-sm':''}`;
 const progH=(v,max,color,h=6)=>`<div class="prog-wrap" style="height:${h}px"><div class="prog-bar" style="height:${h}px;width:${Math.min((v/(max||1))*100,100)}%;background:${color}"></div></div>`;
@@ -1352,7 +1385,42 @@ function pageDashboard(){
     </div>
     ${barChartSVG(fluxoFuturo)}
     ${recorrenteFixoMensal>0?`<div class="text-xs text-muted mt-8">+ ${fmt(recorrenteFixoMensal)}/mês em despesas fixas recorrentes já incluídos na projeção</div>`:''}
-  </div>`;
+  </div>
+
+  <!-- ── ROW 6: Parcelamentos em Andamento ─────────────────────────────── -->
+  ${(()=>{
+    const grupos=getInstallmentGroups();
+    const totalRestante=grupos.reduce((a,g)=>a+g.restante,0);
+    const mesLivre=grupos.length?grupos.reduce((max,g)=>g.mesFinal>max?g.mesFinal:max,grupos[0].mesFinal):null;
+    return`<div class="w-card" style="margin-top:18px">
+      <div class="row between mb-4" style="align-items:flex-start">
+        <div>
+          <div class="sec-title">📅 Parcelamentos em Andamento</div>
+          <div class="text-xs text-muted mt-4">${mesLivre?`Você fica livre de todas as parcelas atuais em <b style="color:var(--text)">${moLbl(mesLivre)}</b>`:'Nenhum parcelamento ativo no momento'}</div>
+        </div>
+        ${grupos.length?`<div style="text-align:right">
+          <div class="text-xs text-muted">Ainda falta pagar</div>
+          <div class="mono fw-800" style="font-size:16px;color:var(--purple)">${fmt(totalRestante)}</div>
+        </div>`:''}
+      </div>
+      ${grupos.length?grupos.map(g=>{
+        const pct=g.n>0?((g.atual-1)/g.n*100):0;
+        return`<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+          <div class="row between mb-6" style="align-items:flex-start;gap:10px">
+            <div style="min-width:0;flex:1">
+              <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.base)}${g.cardNome?` <span style="font-size:11px;color:var(--muted);font-weight:500">· ${esc(g.cardNome)}</span>`:''}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">${g.atual}/${g.n} parcelas · termina em <b style="color:var(--text)">${moLbl(g.mesFinal)}</b></div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="mono fw-700" style="font-size:13px">${fmt(g.valorParcela)}<span style="font-size:10px;color:var(--muted)">/mês</span></div>
+              <div style="font-size:11px;color:var(--purple);font-weight:600">faltam ${fmt(g.restante)}</div>
+            </div>
+          </div>
+          ${progH(pct,100,'var(--purple)',5)}
+        </div>`;
+      }).join(''):emptyState('📅','Nenhuma compra parcelada em andamento')}
+    </div>`;
+  })()}`;
 }
 
 
@@ -2433,6 +2501,7 @@ function renderModal(){
         <label>Parcelas</label>
         <input type="number" name="parcelas" min="1" max="24" value="${esc(f.parcelas||'1')}" placeholder="1"/>
         <div class="inp-hint" data-parcelashint>${f.valor&&+f.parcelas>1?`${f.parcelas}x de ${fmt(+f.valor/+f.parcelas)}`:''}</div>
+        ${+f.parcelas>1?`<div style="font-size:11px;color:var(--muted);margin-top:4px">As ${f.parcelas} parcelas serão lançadas automaticamente nas faturas seguintes.</div>`:''}
       </div>
       <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:14px">
         <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">🔁 Recorrência</div>
@@ -2696,8 +2765,8 @@ function bindEvents(){
       }
       else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;cloudPush();}
       else if(n==='parcelas'){
-        // Re-render apenas quando parcelas muda (muda a seção de recorrência), preservando o foco
-        if(S.modal==='despesa'){
+        // Re-render apenas quando parcelas muda (muda o aviso de parcelamento automático), preservando o foco
+        if(S.modal==='despesa'||S.modal==='lanc'){
           const pos=e.target.selectionStart;
           render();
           restoreFocus('parcelas',pos);
@@ -2973,7 +3042,30 @@ function submitModal(){
           S.despesas=[{...e,recorrencia},...S.despesas];
         }
       }
-      else if(modal==='lanc'){if(!e.cartaoId)return; S.lancs=[e,...S.lancs];}
+      else if(modal==='lanc'){
+        if(!e.cartaoId)return;
+        const parcelas=Math.max(1,Math.min(24,+updated.parcelas||1));
+        if(parcelas>1){
+          // Lança cada parcela na fatura do mês correto, igual à despesa parcelada
+          const baseDate=new Date(updated.data||today());
+          const baseMesStr=updated.mes||S.mes;
+          for(let i=0;i<parcelas;i++){
+            const d=new Date(baseDate);
+            d.setMonth(d.getMonth()+i);
+            const dateStr=d.toISOString().slice(0,10);
+            const md=new Date(baseMesStr+'-02');
+            md.setMonth(md.getMonth()+i);
+            const mesStr=md.toISOString().slice(0,7);
+            S.lancs=[{...updated,id:uid(),data:dateStr,mes:mesStr,
+              descricao:`${updated.descricao||updated.categoria} (${i+1}/${parcelas})`,
+              valor:+(+updated.valor/parcelas).toFixed(2),
+              parcelas:String(parcelas)
+            },...S.lancs];
+          }
+        } else {
+          S.lancs=[e,...S.lancs];
+        }
+      }
       else if(modal==='invest') S.invest=[e,...S.invest];
     }
   }
