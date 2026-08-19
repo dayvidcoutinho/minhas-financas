@@ -1326,13 +1326,13 @@ function pageDashboard(){
       <div class="sec-title mb-16">Saúde Financeira · ${moLbl(S.mes)}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         ${[
-          {label:'Gastos Fixos',v:fD.filter(x=>x.tipo==='fixa').reduce((a,x)=>a+(+x.valor),0),ideal:50,color:'var(--amber)',dir:'max'},
-          {label:'Gastos Variáveis',v:fD.filter(x=>x.tipo==='variavel').reduce((a,x)=>a+(+x.valor),0),ideal:30,color:'var(--purple)',dir:'max'},
-          {label:'Fatura Cartões',v:totCa,ideal:25,color:'var(--blue)',dir:'max'},
-          {label:'Saldo Livre',v:Math.max(saldo,0),ideal:20,color:'var(--green)',dir:'min'},
+          {label:'Gastos Fixos',v:fD.filter(x=>x.tipo==='fixa').reduce((a,x)=>a+(+x.valor),0),ideal:50,color:'var(--amber)',dir:'max',tipoPreset:'fixa'},
+          {label:'Gastos Variáveis',v:fD.filter(x=>x.tipo==='variavel').reduce((a,x)=>a+(+x.valor),0),ideal:30,color:'var(--purple)',dir:'max',tipoPreset:'variavel'},
+          {label:'Fatura Cartões',v:totCa,ideal:25,color:'var(--blue)',dir:'max',tipoPreset:'cartao'},
+          {label:'Saldo Livre',v:Math.max(saldo,0),ideal:20,color:'var(--green)',dir:'min',tipoPreset:'Todos'},
         ].map(x=>{
           const p=pct(x.v),ok=x.dir==='min'?p>=x.ideal:p<=x.ideal;
-          return`<div style="background:var(--bg);border-radius:12px;padding:14px;border:1px solid var(--border)">
+          return`<div data-tab="despesas" data-desp-tipo-preset="${x.tipoPreset}" style="cursor:pointer;background:var(--bg);border-radius:12px;padding:14px;border:1px solid var(--border);transition:border-color .15s" onmouseover="this.style.borderColor='${x.color}'" onmouseout="this.style.borderColor='var(--border)'">
             <div class="row between mb-8"><span class="text-xs text-muted fw-600">${x.label}</span>${ok?ic('check','var(--green)'):ic('alert','var(--amber)')}</div>
             <div class="mono fw-800" style="font-size:17px">${fmt(x.v)}</div>
             <div class="text-xs text-muted mt-4">${fmtP(p)} · ideal ${x.dir==='min'?'≥':'≤'}${x.ideal}%</div>
@@ -2686,7 +2686,11 @@ function render(){
 // ── Events ────────────────────────────────────────────────────────────────────
 function bindEvents(){
   // Sidebar + mobile nav tabs
-  document.querySelectorAll('[data-tab]').forEach(el=>el.addEventListener('click',()=>{setState({tab:el.dataset.tab,cardView:null});}));
+  document.querySelectorAll('[data-tab]').forEach(el=>el.addEventListener('click',()=>{
+    const patch={tab:el.dataset.tab,cardView:null};
+    if(el.dataset.despTipoPreset){patch.despTipoFilter=el.dataset.despTipoPreset;patch.despCatFilter='Todos';}
+    setState(patch);
+  }));
   // Modal open
   document.querySelectorAll('[data-modal]').forEach(el=>el.addEventListener('click',()=>openModal(el.dataset.modal)));
   // Sidebar mes
