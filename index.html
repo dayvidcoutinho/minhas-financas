@@ -388,32 +388,27 @@ const ic = (n,c)=>{let s=IC[n]||'';if(c)s=s.replace(/stroke="currentColor"/g,`st
 const PAL=['#4e2a9e','#00a86b','#3182ce','#dd6b20','#e53e3e','#0694a2','#805ad5','#d53f8c','#2c7a7b','#c05621'];
 const BANK_C={Nubank:'#8b12d6',Itaú:'#ec7000',Bradesco:'#cc092f',Santander:'#e81f26','Banco do Brasil':'#f6bc00',Caixa:'#005ca9',C6:'#242424',Inter:'#ff6b00',XP:'#1c1c1e',BTG:'#1d3461',Neon:'#00d4aa',PicPay:'#11c76f',Outro:'#718096'};
 const BANKS=Object.keys(BANK_C),BRANDS=['Visa','Mastercard','Elo','American Express','Hipercard','Outro'];
-// Categoria única de despesas — usada em despesas fixas, variáveis e lançamentos de cartão,
-// para que a mesma categoria (ex: "Casa") apareça igual em qualquer tela.
-const CAT_EXP=[
-  // 🏠 Casa
-  'Casa','Financiamento Imóvel','Internet / Telefone','Fatura Cartão',
-  // 🍽️ Alimentação
-  'Restaurante','Lanchonete','Padaria','Delivery','Supermercado','Hortifruti','Açougue','Alimentação','Bebidas',
-  // 🚗 Transporte
-  'Combustível','Transporte','Transporte público','Uber / Táxi','Estacionamento','Manutenção Veículo','Financiamento Veículo','IPVA','Seguro Auto',
-  // 🏥 Saúde
-  'Saúde','Farmácia','Plano de Saúde','Consulta médica','Exames','Academia',
-  // 🎉 Lazer & Viagem
-  'Lazer','Viagem','Bar / Balada','Cinema / Teatro',
-  // 🛍️ Compras
-  'Vestuário','Calçados','Eletrônicos','Tecnologia','Beleza',
-  // 🧴 Higiene & Bem-estar
-  'Higiene pessoal','Produtos de limpeza','Pets',
-  // 📺 Assinaturas & Educação
-  'Assinatura','Educação','Curso / Idiomas',
-  // 🛡️ Seguros & Previdência
-  'Seguro de Vida','Seguro Residencial','Previdência Privada',
-  // 🏢 Empresa & Funcionários
-  'Pró-labore','Contador','Aluguel Comercial','Funcionário(a) doméstico(a)','Clube / Associação',
-  // Outros
-  'Presente / Doação','Outros',
-];
+// Categorias de despesa em dois níveis (grupo → subcategoria específica) — usadas em
+// despesas fixas, variáveis e lançamentos de cartão, pra manter tudo consistente.
+const CAT_SUB={
+  'Casa':['Casa','Água','Aluguel/Prestação','Condomínio','Energia','Funcionários','Gás','Internet','IPTU','Lavanderia','Manutenção','Objetos de Casa','Produtos de Limpeza','Seguro Residencial','Telefone/Celular','Financiamento Imóvel'],
+  'Alimentação':['Alimentação','Açougue','Bebidas','Cafeteria e Lanchonete','Delivery','Feira','Frango Assado','Hortifruti','Marmitas','Padaria','Restaurante','Supermercado'],
+  'Transporte':['Transporte','Combustível','Estacionamento','Financiamento Veículo','IPVA','Manutenção Veículo','Pedágio','Seguro Auto','Transporte Público','Uber/Táxi'],
+  'Vestuário':['Vestuário','Acessórios','Calçados'],
+  'Compras':['Eletrônicos','Tecnologia','Beleza'],
+  'Lazer':['Lazer','Bar/Balada','Cinema/Teatro','Hobbies','Jogos/Games','Shows/Eventos'],
+  'Saúde':['Saúde','Academia','Consulta Médica','Dentista','Exames','Farmácia','Higiene Pessoal','Plano de Saúde','Terapia/Psicólogo'],
+  'Taxas':['Taxas','Fatura Cartão','IOF','Imposto de Renda','Juros/Multas','Tarifa Bancária'],
+  'Viagem':['Viagem','Hospedagem','Passagens','Passeios'],
+  'Educação':['Educação','Curso/Idiomas','Escola/Faculdade','Material Escolar'],
+  'Assinaturas':['Assinatura','Clube/Associação','Software/Apps','Streaming'],
+  'Seguros & Previdência':['Seguro de Vida','Previdência Privada'],
+  'Objetivos de Vida':['Investimento','Reserva de Emergência','Objetivos de Vida','Presente/Doação'],
+  'Trabalho/Empresa':['Pró-labore','Contador','Aluguel Comercial'],
+  'Outros':['Outros','Pets'],
+};
+const CAT_GROUPS=Object.keys(CAT_SUB);
+const CAT_EXP=Object.values(CAT_SUB).flat();
 const CAT_INC=['Salário','Freelance','Aluguel Recebido','Dividendos','Vendas','Bônus','Outros'];
 const INV_T = [
   'Ações',
@@ -900,9 +895,16 @@ const addCat = (key, name) => {
   return true;
 };
 
+// Monta as <option>/<optgroup> de categoria — agrupada por grupo (Casa, Alimentação...) quando key==='exp'
+const catOptionsHtml = (key, val) => {
+  const opt=o=>`<option value="${esc(o)}"${o===val?' selected':''}>${esc(o)}</option>`;
+  if(key!=='exp') return getCats(key).map(opt).join('');
+  const grouped=CAT_GROUPS.map(g=>`<optgroup label="${esc(g)}">${CAT_SUB[g].map(opt).join('')}</optgroup>`).join('');
+  const custom=S.customCats.exp||[];
+  return grouped+(custom.length?`<optgroup label="Personalizadas">${custom.map(opt).join('')}</optgroup>`:'');
+};
 // Select de categoria com botão "+" ao lado para adicionar nova
 const catSel = (label, name, key, val='') => {
-  const opts = getCats(key);
   const boxId = `ncb-${name}`;
   return `<div class="inp-wrap">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -913,7 +915,7 @@ const catSel = (label, name, key, val='') => {
       </button>
     </div>
     <select name="${name}" data-catkey="${key}">
-      ${opts.map(o=>`<option value="${esc(o)}"${o===val?' selected':''}>${esc(o)}</option>`).join('')}
+      ${catOptionsHtml(key, val)}
     </select>
     <div id="${boxId}" style="display:none;margin-top:8px">
       <div style="display:flex;gap:6px;align-items:center">
@@ -2541,7 +2543,18 @@ function renderModal(){
       <div class="grid-2" style="display:grid;gap:12px">${inp('Custo de Aquisição (R$)','custoAquisicao','number',f.custoAquisicao||'','Valor pago total')}${inp('Preço Médio (R$)','precoMedio','number',f.precoMedio||'','opcional')}</div>
       <div class="grid-2" style="display:grid;gap:12px">${inp('Retorno % a.a.','retorno','number',f.retorno||'','12')}${inp('Meta (R$)','meta','number',f.meta||'','opcional')}</div>
       <div class="grid-2" style="display:grid;gap:12px">${inp('Data de início','dataInicio','date',f.dataInicio||today())}${inp('Vencimento','vencimento','date',f.vencimento||'','opcional')}</div>
-      ${inp('Aporte mensal planejado (R$)','aporteMensal','number',f.aporteMensal||'','opcional')}`;
+      ${inp('Aporte mensal planejado (R$)','aporteMensal','number',f.aporteMensal||'','opcional')}
+      ${!S.editId?(()=>{
+        const origemInvest=f.origemInvest||'reserva';
+        return`<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:14px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">💰 De onde saiu esse dinheiro?</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <button data-origem-invest="receita" style="padding:10px;border-radius:10px;font-size:12.5px;font-weight:600;border:1.5px solid ${origemInvest==='receita'?'var(--amber)':'var(--border)'};background:${origemInvest==='receita'?'var(--amber-lt)':'transparent'};color:${origemInvest==='receita'?'var(--amber)':'var(--muted)'}">Receita deste mês</button>
+            <button data-origem-invest="reserva" style="padding:10px;border-radius:10px;font-size:12.5px;font-weight:600;border:1.5px solid ${origemInvest==='reserva'?'var(--teal)':'var(--border)'};background:${origemInvest==='reserva'?'var(--teal-lt)':'transparent'};color:${origemInvest==='reserva'?'var(--teal)':'var(--muted)'}">Reserva / já tinha guardado</button>
+          </div>
+          <div class="text-xs text-muted mt-8">${origemInvest==='receita'?`Lança uma despesa "Investimento" de ${fmt(+f.valor||0)} este mês, descontando do seu saldo livre.`:'Não desconta do saldo livre deste mês — considera que o dinheiro já estava separado antes.'}</div>
+        </div>`;
+      })():''}`;
   } else if(S.modal==='sync'){
     const total=S.receitas.length+S.despesas.length+S.lancs.length+S.invest.length;
     body=`<h3>Exportar / Importar</h3>
@@ -2859,6 +2872,10 @@ function bindEvents(){
     mbox.querySelectorAll('[data-origem]').forEach(el=>el.addEventListener('click',()=>{
       setState({form:{...S.form,origem:el.dataset.origem}});
     }));
+    // Origem do dinheiro do investimento (Receita deste mês / Reserva)
+    mbox.querySelectorAll('[data-origem-invest]').forEach(el=>el.addEventListener('click',()=>{
+      setState({form:{...S.form,origemInvest:el.dataset.origemInvest}});
+    }));
     // Card picker
     mbox.querySelectorAll('[data-pick-card]').forEach(el=>el.addEventListener('click',()=>{setState({form:{...S.form,cartaoId:el.dataset.pickCard}});}));
     // Lançar from card view
@@ -3004,7 +3021,7 @@ function openModal(type){
     despesa:{tipo:'fixa',categoria:CAT_EXP[0],data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'},
     lanc:{cartaoId:S.cartoes[0]?.id||'',categoria:CAT_EXP[0],mes:S.mes,parcelas:'1',data:today(),reembolso:false,origem:'pessoal',recorrencia:'nenhuma'},
     cartao:{banco:'Nubank',bandeira:'Visa',limite:'5000',fechamento:'14',vencimento:'21'},
-    invest:{tipo:'Renda Fixa',subtipo:'CDB',retorno:'12',dataInicio:today(),custoAquisicao:'',precoMedio:'',vencimento:'',aporteMensal:''}
+    invest:{tipo:'Renda Fixa',subtipo:'CDB',retorno:'12',dataInicio:today(),custoAquisicao:'',precoMedio:'',vencimento:'',aporteMensal:'',origemInvest:'reserva'}
   };
   setState({modal:type,form:def[type]||{},scanImg:null,scanErr:'',scanLoad:false});
 }
@@ -3081,7 +3098,16 @@ function submitModal(){
           S.lancs=[e,...S.lancs];
         }
       }
-      else if(modal==='invest') S.invest=[e,...S.invest];
+      else if(modal==='invest'){
+        const {origemInvest,...investLimpo}=e;
+        S.invest=[investLimpo,...S.invest];
+        if(origemInvest==='receita'&&+investLimpo.valor>0){
+          S.despesas=[{id:uid(),tipo:'variavel',categoria:'Investimento',
+            descricao:`Aporte: ${investLimpo.nome||investLimpo.subtipo||'Investimento'}`,
+            valor:+investLimpo.valor,data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'
+          },...S.despesas];
+        }
+      }
     }
   }
   save(); setState({modal:null,editId:null,scanImg:null,scanErr:''});
@@ -3322,7 +3348,7 @@ function renderImportModal(){
                 </td>
                 <td style="padding:8px 10px">
                   <select data-imp-cat="${i}" style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;background:var(--bg);outline:none;color:var(--text)">
-                    ${CAT_EXP.map(c=>`<option value="${c}" ${c===r.categoria?'selected':''}>${c}</option>`).join('')}
+                    ${catOptionsHtml('exp', r.categoria)}
                   </select>
                 </td>
                 <td style="padding:8px 10px;text-align:right;font-weight:700;font-family:var(--mono);color:${r.dup?'var(--orange)':'var(--red)'}">R$ ${r.valor.toFixed(2).replace('.',',')}</td>
