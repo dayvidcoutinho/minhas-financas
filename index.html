@@ -2419,6 +2419,7 @@ function renderModal(){
     const ori=f.origem||'pessoal';
     const recorrencia=f.recorrencia||'nenhuma';
     const parcelas=+f.parcelas||1;
+    const scanState=S.scanImg?`<img src="${S.scanImg}" style="width:100%;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid var(--border);margin-top:8px"/>`:'';
 
     // Descrições salvas (últimas 10 únicas)
     const savedDescs=[...new Set(
@@ -2426,6 +2427,10 @@ function renderModal(){
     )].slice(0,10);
 
     body=`
+      <!-- Escanear comprovante com IA -->
+      <div class="scan-box"><div class="row gap-10">${S.scanLoad?`<div>${ic('spin','var(--accent)')}</div><div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--accent)">Analisando imagem...</div></div>`:`<div style="background:var(--accent-lt);border-radius:9px;padding:8px;display:flex">${ic('sparkle','var(--accent)')}</div><div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--accent)">Preencher com IA</div><div class="text-muted text-xs">Comprovante de pix, dinheiro ou boleto</div></div><button class="${btnC('ai','sm')}" id="btn-scan-purchase">${ic('camera','#fff')}Escanear</button>`}</div>${scanState}${S.scanErr?`<div style="font-size:12px;color:var(--orange);margin-top:8px">${S.scanErr}</div>`:''}</div>
+      <div style="font-size:11px;color:var(--muted);background:var(--teal-lt);border-radius:9px;padding:8px 10px">💡 Use aqui pra pagamentos <b>pix, dinheiro ou boleto</b> — o valor desconta do saldo livre já no mês da data lançada. Compra no cartão de crédito é em <b>Cartões → Lançar</b>.</div>
+
       <!-- Tipo: Fixa / Variável -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${['fixa','variavel'].map(t=>`<button data-tipo="${t}" style="padding:10px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid ${f.tipo===t?(t==='fixa'?'var(--orange)':'var(--purple)'):'var(--border)'};background:${f.tipo===t?(t==='fixa'?'var(--orange-lt)':'rgba(124,58,237,.08)'):'transparent'};color:${f.tipo===t?(t==='fixa'?'var(--orange)':'var(--purple)'):'var(--muted)'}">${t==='fixa'?'📌 Fixa':'🔄 Variável'}</button>`).join('')}
