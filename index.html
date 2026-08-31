@@ -604,6 +604,8 @@ let S = {
   importRows: [],
   importCardId: '',
   importSource: '',
+  importTarget: 'lanc',
+  importDespesaTipo: 'variavel',
   stmtScanLoad: false,
   stmtScanErr: '',
   editId: null,
@@ -1590,6 +1592,7 @@ function pageDespesas(){
     ` : emptyState('📊','Nenhum gasto em '+moLbl(S.mes))}
   </div>
 
+  ${S.stmtScanErr?`<div class="panel mb-14" style="padding:12px 16px;border-color:rgba(245,158,11,.3);background:var(--amber-lt);font-size:12px;color:var(--amber);font-weight:600">⚠️ ${esc(S.stmtScanErr)}</div>`:''}
   <!-- ── Barra de busca + filtros ───────────────────────────────────────────── -->
   <div class="row gap-10 mb-14 wrap">
     <!-- Busca -->
@@ -1608,7 +1611,8 @@ function pageDespesas(){
         return`<button data-desp-tipo="${t}" class="btn ${active?'btn-primary':'btn-ghost'} btn-sm">${labels[t]}</button>`;
       }).join('')}
     </div>
-    <!-- Nova despesa -->
+    <!-- Importar / Nova despesa -->
+    <button class="${btnC('ai')}" id="btn-import-desp" ${S.stmtScanLoad?'disabled':''}>${S.stmtScanLoad?ic('spin','#fff')+' Lendo...':ic('camera','#fff')+'Importar Extrato com IA'}</button>
     <button class="${btnC('primary')}" data-modal="despesa">${ic('plus','#fff')}Nova Despesa</button>
   </div>
 
@@ -2894,7 +2898,9 @@ function bindEvents(){
   if(btnImpExt) btnImpExt.addEventListener('click',()=>triggerStatementScan());
   // Import extrato dentro do detalhe do cartão — já vem com o cartão pré-selecionado
   const btnImpExtCard=document.getElementById('btn-import-ext-card');
-  if(btnImpExtCard) btnImpExtCard.addEventListener('click',()=>triggerStatementScan(btnImpExtCard.dataset.cardScan));
+  if(btnImpExtCard) btnImpExtCard.addEventListener('click',()=>triggerStatementScan('lanc',btnImpExtCard.dataset.cardScan));
+  const btnImpDesp=document.getElementById('btn-import-desp');
+  if(btnImpDesp) btnImpDesp.addEventListener('click',()=>triggerStatementScan('despesa'));
   // Invest filters
   document.querySelectorAll('[data-inv-filter]').forEach(el=>el.addEventListener('click',()=>{setState({investFilter:el.dataset.invFilter});}));
   // Em Alta / Em Baixa toggle filter
@@ -3217,7 +3223,7 @@ function triggerScan(type){
 
 // ── AI Statement Scan (múltiplos lançamentos de uma vez) ───────────────────────
 let stmtFileInput=null;
-function triggerStatementScan(cardId){
+function triggerStatementScan(target='lanc',cardId){
   if(!S.apiKey){setState({stmtScanErr:'Configure sua API Key nas Configurações (⚙️) primeiro.'});return;}
   if(!stmtFileInput){stmtFileInput=document.createElement('input');stmtFileInput.type='file';stmtFileInput.accept='image/*';stmtFileInput.multiple=true;stmtFileInput.style.display='none';document.body.appendChild(stmtFileInput);}
   stmtFileInput.onchange=async e=>{
@@ -3231,7 +3237,10 @@ function triggerStatementScan(cardId){
         return {b64:await toB64(img),mt:img.type||'image/jpeg'};
       }));
       const anoRef=(S.mes||curMo()).slice(0,4);
-      const prompt=`Analise estas imagens de um extrato ou fatura de cartão de crédito. Extraia TODOS os lançamentos/compras visíveis (ignore linhas de resumo, total da fatura, pagamento anterior e limite disponível).\nRetorne SOMENTE um array JSON, sem markdown, nesse formato exato:\n[{"data":"YYYY-MM-DD","descricao":"string","valor":number,"categoria":"uma de: ${CAT_EXP.join(',')}"}]\nRegras: valor sempre positivo e decimal (ex: 34.99). Se o ano não estiver visível, use ${anoRef}. Uma entrada por lançamento, na ordem em que aparecem nas imagens. Se houver múltiplas imagens, trate como páginas do mesmo extrato.`;
+      const origem=target==='despesa'
+        ?'um ou mais extratos/comprovantes de pagamento direto (pix, dinheiro, transferência ou boleto). Podem ser várias fotos de comprovantes diferentes'
+        :'um extrato ou fatura de cartão de crédito';
+      const prompt=`Analise estas imagens de ${origem}. Extraia TODOS os lançamentos/pagamentos visíveis (ignore linhas de resumo, total, saldo e limite disponível).\nRetorne SOMENTE um array JSON, sem markdown, nesse formato exato:\n[{"data":"YYYY-MM-DD","descricao":"string","valor":number,"categoria":"uma de: ${CAT_EXP.join(',')}"}]\nRegras: valor sempre positivo e decimal (ex: 34.99). Se o ano não estiver visível, use ${anoRef}. Uma entrada por lançamento/comprovante, na ordem em que aparecem nas imagens. Se houver múltiplas imagens do mesmo documento, trate como páginas do mesmo extrato; se forem comprovantes avulsos diferentes, trate cada um como um lançamento separado.`;
       const content=[...imgs.map(im=>({type:'image',source:{type:'base64',media_type:im.mt,data:im.b64}})),{type:'text',text:prompt}];
       const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:4096,messages:[{role:'user',content}]})});
       if(!res.ok){
@@ -3249,8 +3258,8 @@ function triggerStatementScan(cardId){
       }));
       if(!rows.length){setState({stmtScanLoad:false,stmtScanErr:'Não encontrei lançamentos nessas imagens. Tente fotos mais nítidas ou lance manualmente.'});return;}
       setState({stmtScanLoad:false,stmtScanErr:''});
-      if(cardId) S.importCardId=cardId;
-      loadImportData({source:'Extrato via IA',mes:S.mes,lancamentos:rows});
+      if(target==='lanc'&&cardId) S.importCardId=cardId;
+      loadImportData({source:target==='despesa'?'Despesas via IA':'Extrato via IA',mes:S.mes,lancamentos:rows},target);
     }catch(err){
       const msg=err?.message||'';
       setState({stmtScanLoad:false,stmtScanErr:msg?`Erro ao ler o extrato: ${msg}`:'Não foi possível ler o extrato. Tente novamente ou lance manualmente.'});
@@ -3283,7 +3292,9 @@ function renderImportModal(){
           </div>
         </div>
 
-        ${S.cartoes.length?`<div class="inp-wrap"><label>Atribuir ao cartão</label><select id="import-card-sel">${cardOpts}</select></div>`:`<div style="background:var(--red-lt);border:1px solid rgba(229,69,69,.3);border-radius:9px;padding:12px;font-size:13px;color:var(--red)">⚠️ Cadastre um cartão primeiro antes de importar.</div>`}
+        ${S.importTarget==='despesa'
+          ?`<div class="inp-wrap"><label>Tipo (aplicado a todas)</label><div class="row gap-8">${['fixa','variavel'].map(t=>`<button data-imp-tipo="${t}" style="flex:1;padding:9px;border-radius:9px;font-size:12px;font-weight:600;border:1.5px solid ${S.importDespesaTipo===t?'var(--accent)':'var(--border)'};background:${S.importDespesaTipo===t?'var(--accent-lt)':'transparent'};color:${S.importDespesaTipo===t?'var(--accent)':'var(--muted)'}">${t==='fixa'?'📌 Fixa':'🔄 Variável'}</button>`).join('')}</div></div>`
+          :(S.cartoes.length?`<div class="inp-wrap"><label>Atribuir ao cartão</label><select id="import-card-sel">${cardOpts}</select></div>`:`<div style="background:var(--red-lt);border:1px solid rgba(229,69,69,.3);border-radius:9px;padding:12px;font-size:13px;color:var(--red)">⚠️ Cadastre um cartão primeiro antes de importar.</div>`)}
 
         <div style="display:flex;gap:8px;margin-bottom:4px">
           <button id="btn-sel-all" class="${btnC('ghost','sm')}">Selecionar todas</button>
@@ -3322,8 +3333,8 @@ function renderImportModal(){
 
         <div class="row gap-8" style="margin-top:4px">
           <button class="${btnC('ghost')}" id="btn-close-import2" style="flex:1;justify-content:center">Cancelar</button>
-          <button class="${btnC('primary')}" id="btn-confirm-import" style="flex:1;justify-content:center" ${!S.cartoes.length?'disabled':''}>
-            ${ic('check','#fff')} Importar ${S.importRows.filter(r=>r.checked).length} lançamento(s)
+          <button class="${btnC('primary')}" id="btn-confirm-import" style="flex:1;justify-content:center" ${S.importTarget==='lanc'&&!S.cartoes.length?'disabled':''}>
+            ${ic('check','#fff')} Importar ${S.importRows.filter(r=>r.checked).length} ${S.importTarget==='despesa'?'despesa(s)':'lançamento(s)'}
           </button>
         </div>
       </div>
@@ -3339,6 +3350,7 @@ function bindImportEvents(){
   document.getElementById('modal-overlay')?.addEventListener('click',e=>{if(e.target.id==='modal-overlay')close();});
 
   document.getElementById('import-card-sel')?.addEventListener('change',e=>{S.importCardId=e.target.value;});
+  document.querySelectorAll('[data-imp-tipo]').forEach(el=>el.addEventListener('click',()=>{S.importDespesaTipo=el.dataset.impTipo;renderImportModal();}));
 
   document.getElementById('btn-sel-all')?.addEventListener('click',()=>{S.importRows=S.importRows.map(r=>({...r,checked:true}));renderImportModal();});
   document.getElementById('btn-desel-all')?.addEventListener('click',()=>{S.importRows=S.importRows.map(r=>({...r,checked:false}));renderImportModal();});
@@ -3352,28 +3364,42 @@ function bindImportEvents(){
   }));
 
   document.getElementById('btn-confirm-import')?.addEventListener('click',()=>{
-    if(!S.importCardId&&S.cartoes.length){S.importCardId=S.cartoes[0].id;}
     const toImport=S.importRows.filter(r=>r.checked);
     if(!toImport.length)return;
-    const newLancs=toImport.map(r=>({
-      id:uid(), cartaoId:S.importCardId, descricao:r.descricao,
-      valor:r.valor, categoria:r.categoria, data:r.data,
-      mes:r.mes||S.mes, parcelas:'1', reembolso:false
-    }));
-    S.lancs=[...newLancs,...S.lancs];
-    save();
-    setState({importRows:[], tab:'cartoes'});
-    alert(`✅ ${newLancs.length} lançamento(s) importado(s) com sucesso!`);
+    if(S.importTarget==='despesa'){
+      const novasDespesas=toImport.map(r=>({
+        id:uid(), tipo:S.importDespesaTipo||'variavel', categoria:r.categoria,
+        descricao:r.descricao, valor:r.valor, data:r.data,
+        origem:'pessoal', parcelas:'1', recorrencia:'nenhuma'
+      }));
+      S.despesas=[...novasDespesas,...S.despesas];
+      save();
+      setState({importRows:[], tab:'despesas'});
+      alert(`✅ ${novasDespesas.length} despesa(s) importada(s) com sucesso!`);
+    } else {
+      if(!S.importCardId&&S.cartoes.length){S.importCardId=S.cartoes[0].id;}
+      const newLancs=toImport.map(r=>({
+        id:uid(), cartaoId:S.importCardId, descricao:r.descricao,
+        valor:r.valor, categoria:r.categoria, data:r.data,
+        mes:r.mes||S.mes, parcelas:'1', reembolso:false
+      }));
+      S.lancs=[...newLancs,...S.lancs];
+      save();
+      setState({importRows:[], tab:'cartoes'});
+      alert(`✅ ${newLancs.length} lançamento(s) importado(s) com sucesso!`);
+    }
   });
 }
 
-function loadImportData(d){
+function loadImportData(d,target='lanc'){
   const rows=d.lancamentos||[];
   if(!rows.length){alert('Nenhum lançamento encontrado.');return;}
-  const isDup=l=>S.lancs.some(x=>x.data===l.data&&Math.abs(+x.valor-(+l.valor))<0.01);
+  const alvo=target==='despesa'?S.despesas:S.lancs;
+  const isDup=l=>alvo.some(x=>x.data===l.data&&Math.abs(+x.valor-(+l.valor))<0.01);
   const importRows=rows.map(l=>({...l,mes:d.mes||S.mes,checked:!isDup(l),dup:isDup(l)}));
   if(!S.importCardId&&S.cartoes.length) S.importCardId=S.cartoes[0].id;
   S.importSource=d.source||'';
+  S.importTarget=target;
   S.importRows=importRows;
   renderImportModal();
 }
