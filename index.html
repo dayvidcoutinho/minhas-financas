@@ -2715,7 +2715,7 @@ function renderModal(){
             <button data-origem-invest="receita" style="padding:10px;border-radius:10px;font-size:12.5px;font-weight:600;border:1.5px solid ${origemInvest==='receita'?'var(--amber)':'var(--border)'};background:${origemInvest==='receita'?'var(--amber-lt)':'transparent'};color:${origemInvest==='receita'?'var(--amber)':'var(--muted)'}">Receita deste mês</button>
             <button data-origem-invest="reserva" style="padding:10px;border-radius:10px;font-size:12.5px;font-weight:600;border:1.5px solid ${origemInvest==='reserva'?'var(--teal)':'var(--border)'};background:${origemInvest==='reserva'?'var(--teal-lt)':'transparent'};color:${origemInvest==='reserva'?'var(--teal)':'var(--muted)'}">Reserva / já tinha guardado</button>
           </div>
-          <div class="text-xs text-muted mt-8">${origemInvest==='receita'?`Lança uma despesa "Investimento" de ${fmt(+f.valor||0)} este mês, descontando do seu saldo livre.`:'Não desconta do saldo livre deste mês — considera que o dinheiro já estava separado antes.'}</div>
+          <div class="text-xs text-muted mt-8">${origemInvest==='receita'?`Lança uma despesa "Investimento" de ${fmt(+f.valor||0)} na data de início (${moLbl((f.dataInicio||today()).slice(0,7))}), descontando do saldo livre <b>daquele mês</b>.`:'Não desconta do saldo livre — considera que o dinheiro já estava separado antes.'}</div>
         </div>`;
       })():''}`;
   } else if(S.modal==='sync'){
@@ -2972,6 +2972,11 @@ function bindEvents(){
         restoreFocus('nome',pos);
       }
       else if(n==='apiKey'){LS.set('mf6-key',e.target.value);S.apiKey=e.target.value;cloudPush();}
+      else if(n==='dataInicio'&&S.modal==='invest'){
+        // Re-render pra atualizar o aviso de qual mês vai ser descontado
+        render();
+        document.querySelector('[name="dataInicio"]')?.focus();
+      }
       else if(n==='parcelas'){
         // Re-render apenas quando parcelas muda (muda o aviso de parcelamento automático), preservando o foco
         if(S.modal==='despesa'||S.modal==='lanc'){
@@ -3284,9 +3289,10 @@ function submitModal(){
         const {origemInvest,...investLimpo}=e;
         S.invest=[investLimpo,...S.invest];
         if(origemInvest==='receita'&&+investLimpo.valor>0){
+          // Desconta no mês da data do aporte (dataInicio), não no mês em que o lançamento foi digitado
           S.despesas=[{id:uid(),tipo:'variavel',categoria:'Investimento',
             descricao:`Aporte: ${investLimpo.nome||investLimpo.subtipo||'Investimento'}`,
-            valor:+investLimpo.valor,data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'
+            valor:+investLimpo.valor,data:investLimpo.dataInicio||today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'
           },...S.despesas];
         }
       }
