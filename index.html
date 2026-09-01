@@ -1370,10 +1370,13 @@ function pageDashboard(){
         <div class="row between mb-4"><div class="sec-title">Gastos por Categoria</div></div>
         <div class="text-xs text-muted mb-14">Total de gastos · ${moLbl(S.mes)}</div>
         <div class="row gap-16" style="align-items:center;margin-bottom:18px">
-          <div style="position:relative;flex-shrink:0">
-            ${donutCustom(catsByGroup.map(g=>({value:g.value,color:groupColor(g.name)})),100)}
-            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none">
-              <div class="mono fw-800" style="font-size:13px">${fmt(totGrupos)}</div>
+          <div style="position:relative;flex-shrink:0;width:160px;height:160px">
+            ${donutCustom(catsByGroup.map(g=>({value:g.value,color:groupColor(g.name)})),160)}
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+              <div style="text-align:center;width:58px">
+                <div style="font-size:8px;color:var(--muted);font-weight:700;letter-spacing:.3px">R$</div>
+                <div class="mono fw-800" style="font-size:11px;line-height:1.2;word-break:break-word">${fmt(totGrupos).replace('R$','').trim()}</div>
+              </div>
             </div>
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:7px;min-width:0">
