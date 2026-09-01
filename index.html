@@ -821,10 +821,12 @@ function materializeRecurring(){
     const despTemplates=S.despesas.filter(x=>x&&x.recorrencia==='mensal');
     const seenD=new Set();
     despTemplates.forEach(t=>{
-      const key=`${t.descricao}|${t.categoria}|${t.tipo}|${t.origem}`;
+      // tipo (fixa/variável) é só um rótulo, não faz parte da identidade da recorrência —
+      // duas despesas com o mesmo nome/categoria/origem mas tipos diferentes são a MESMA recorrência
+      const key=`${t.descricao}|${t.categoria}|${t.origem}`;
       if(seenD.has(key)) return; seenD.add(key);
       if(t.data && t.data.slice(0,7)>mes) return; // recorrência começa depois do mês selecionado
-      const jaExiste=S.despesas.some(x=>x.data?.startsWith(mes)&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.tipo===t.tipo&&x.origem===t.origem);
+      const jaExiste=S.despesas.some(x=>x.data?.startsWith(mes)&&x.descricao===t.descricao&&x.categoria===t.categoria&&x.origem===t.origem);
       if(jaExiste) return;
       const day=Math.min(+((t.data||'').slice(8,10))||1,maxDay);
       S.despesas=[{...t,id:uid(),data:`${mes}-${String(day).padStart(2,'0')}`},...S.despesas];
@@ -2933,8 +2935,25 @@ function bindEvents(){
   document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null})));
   // Delete
   document.querySelectorAll('[data-del-r]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();S.receitas=S.receitas.filter(x=>x.id!==el.dataset.delR);save();render();}));
-  document.querySelectorAll('[data-del-d]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();S.despesas=S.despesas.filter(x=>x.id!==el.dataset.delD);save();render();}));
-  document.querySelectorAll('[data-del-l]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();S.lancs=S.lancs.filter(x=>x.id!==el.dataset.delL);save();render();}));
+  document.querySelectorAll('[data-del-d]').forEach(el=>el.addEventListener('click',e=>{
+    e.stopPropagation();
+    const alvo=S.despesas.find(x=>x.id===el.dataset.delD);
+    S.despesas=S.despesas.filter(x=>x.id!==el.dataset.delD);
+    if(alvo&&alvo.recorrencia==='mensal'){
+      // apagar uma ocorrência de despesa recorrente encerra a recorrência de vez — senão ela reaparece sozinha no próximo mês
+      S.despesas=S.despesas.map(x=>(x.recorrencia==='mensal'&&x.descricao===alvo.descricao&&x.categoria===alvo.categoria&&x.origem===alvo.origem)?{...x,recorrencia:'nenhuma'}:x);
+    }
+    save();render();
+  }));
+  document.querySelectorAll('[data-del-l]').forEach(el=>el.addEventListener('click',e=>{
+    e.stopPropagation();
+    const alvoL=S.lancs.find(x=>x.id===el.dataset.delL);
+    S.lancs=S.lancs.filter(x=>x.id!==el.dataset.delL);
+    if(alvoL&&alvoL.recorrencia==='mensal'){
+      S.lancs=S.lancs.map(x=>(x.recorrencia==='mensal'&&x.cartaoId===alvoL.cartaoId&&x.descricao===alvoL.descricao&&x.categoria===alvoL.categoria&&x.origem===alvoL.origem)?{...x,recorrencia:'nenhuma'}:x);
+    }
+    save();render();
+  }));
   document.querySelectorAll('[data-del-i]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();S.invest=S.invest.filter(x=>x.id!==el.dataset.delI);save();render();}));
   document.querySelectorAll('[data-del-card]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();if(confirm('Excluir cartão e lançamentos?')){S.cartoes=S.cartoes.filter(x=>x.id!==el.dataset.delCard);S.lancs=S.lancs.filter(x=>x.cartaoId!==el.dataset.delCard);save();setState({cardView:null});}}));
   // Edit handlers
