@@ -410,6 +410,17 @@ const CAT_SUB={
 const CAT_GROUPS=Object.keys(CAT_SUB);
 const CAT_EXP=Object.values(CAT_SUB).flat();
 const CAT_INC=['Salário','Freelance','Aluguel Recebido','Dividendos','Vendas','Bônus','Outros'];
+// Mapa reverso: subcategoria específica → grupo principal (ex: "Água" → "Casa")
+const SUBCAT_TO_GROUP={};
+CAT_GROUPS.forEach(g=>CAT_SUB[g].forEach(s=>{SUBCAT_TO_GROUP[s]=g;}));
+const groupOf=cat=>SUBCAT_TO_GROUP[cat]||'Outros';
+const GROUP_ICONS={
+  'Casa':'🏠','Alimentação':'🍽️','Transporte':'🚗','Vestuário':'👕','Compras':'🛍️',
+  'Lazer':'🎉','Saúde':'🏥','Taxas':'💳','Viagem':'✈️','Educação':'📚',
+  'Assinaturas':'📺','Seguros & Previdência':'🛡️','Objetivos de Vida':'⭐','Trabalho/Empresa':'🏢','Outros':'📦',
+};
+// Cor fixa por grupo (mesma cor do grupo em qualquer tela, independente da ordenação)
+const groupColor=g=>PAL[CAT_GROUPS.indexOf(g)%PAL.length];
 const INV_T = [
   'Ações',
   'FIIs',
@@ -622,6 +633,9 @@ let S = {
   despTipoFilter: 'Todos',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
   budgets: LS.get('mf6-budgets')||{},
+  groupBudgets: LS.get('mf6-group-budgets')||{},
+  catDetalheGrupo: null,
+  catDetalheSub: 'Todos',
   faturaPaga: LS.get('mf6-fatura-paga')||{},
   syncCode: LS.get('mf6-synccode')||'',
   cloudSyncMsg: '',
@@ -636,7 +650,7 @@ const save=()=>{
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
-  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-fatura-paga',S.faturaPaga);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-group-budgets',S.groupBudgets);LS.set('mf6-fatura-paga',S.faturaPaga);
   // No GAS: salva direto sem lock para não perder dados
   if(typeof google !== 'undefined' && google.script){
     const payload=JSON.stringify({
@@ -644,7 +658,7 @@ const save=()=>{
       lancs:S.lancs, invest:S.invest, customCats:S.customCats,
       investMetas:S.investMetas, investHistorico:S.investHistorico,
       investAporte:S.investAporte, apiKey:S.apiKey,
-      reservaMeses:S.reservaMeses, budgets:S.budgets, faturaPaga:S.faturaPaga, v:'mf6'
+      reservaMeses:S.reservaMeses, budgets:S.budgets, groupBudgets:S.groupBudgets, faturaPaga:S.faturaPaga, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
@@ -669,13 +683,14 @@ function cloudApply(d){
   if(d.investHistorico) S.investHistorico=d.investHistorico;
   if(d.reservaMeses) S.reservaMeses=d.reservaMeses;
   if(d.budgets) S.budgets=d.budgets;
+  if(d.groupBudgets) S.groupBudgets=d.groupBudgets;
   if(d.faturaPaga) S.faturaPaga=d.faturaPaga;
   if(d.apiKey) S.apiKey=d.apiKey;
   S.updatedAt=d.updatedAt||Date.now();
   LS.set('mf6-r',S.receitas);LS.set('mf6-d',S.despesas);LS.set('mf6-ca',S.cartoes);
   LS.set('mf6-l',S.lancs);LS.set('mf6-i',S.invest);LS.set('mf6-cats',S.customCats);
   LS.set('mf6-metas',S.investMetas);LS.set('mf6-aporte',S.investAporte);LS.set('mf6-hist',S.investHistorico);
-  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-fatura-paga',S.faturaPaga);
+  LS.set('mf6-reserva-meses',S.reservaMeses);LS.set('mf6-budgets',S.budgets);LS.set('mf6-group-budgets',S.groupBudgets);LS.set('mf6-fatura-paga',S.faturaPaga);
   LS.set('mf6-updated-at',S.updatedAt);
   if(d.apiKey) LS.set('mf6-key',S.apiKey);
   return true;
@@ -706,7 +721,7 @@ function cloudPush(){
         receitas:S.receitas, despesas:S.despesas, cartoes:S.cartoes,
         lancs:S.lancs, invest:S.invest, customCats:S.customCats,
         investMetas:S.investMetas, investAporte:S.investAporte, investHistorico:S.investHistorico,
-        reservaMeses:S.reservaMeses, budgets:S.budgets, faturaPaga:S.faturaPaga, apiKey:S.apiKey, updatedAt:S.updatedAt,
+        reservaMeses:S.reservaMeses, budgets:S.budgets, groupBudgets:S.groupBudgets, faturaPaga:S.faturaPaga, apiKey:S.apiKey, updatedAt:S.updatedAt,
       });
       const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
       _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
@@ -1011,6 +1026,32 @@ function donutSVG(data,size=130){
   });
   return`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}<circle cx="${cx}" cy="${cy}" r="${r*0.72}" fill="white"/></svg>`;
 }
+// Donut com cor explícita por fatia (pra manter a mesma cor de um grupo em qualquer tela)
+function donutCustom(data,size=110){
+  if(!data.length)return`<svg width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${size*.3}" fill="none" stroke="var(--border)" stroke-width="${size*.12}"/></svg>`;
+  const total=data.reduce((a,x)=>a+x.value,0)||1;
+  const r=size*.28,cx=size/2,cy=size/2,sw=size*.12;
+  let offset=0,paths='';
+  data.forEach(d=>{
+    const pct=d.value/total,angle=pct*2*Math.PI;
+    const x1=cx+r*Math.sin(offset),y1=cy-r*Math.cos(offset);
+    offset+=angle;
+    const x2=cx+r*Math.sin(offset),y2=cy-r*Math.cos(offset);
+    const large=angle>Math.PI?1:0;
+    paths+=`<path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z" fill="${d.color}"/>`;
+  });
+  return`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}<circle cx="${cx}" cy="${cy}" r="${r*0.72}" fill="var(--panel)"/></svg>`;
+}
+// Anel pequeno com % no centro (mini indicador de progresso por categoria)
+function miniRing(pct,color,size=38){
+  const r=size*.36,c=size/2,circ=2*Math.PI*r;
+  const p=Math.max(0,Math.min(100,pct));
+  return`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex-shrink:0">
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${size*.16}"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="${size*.16}" stroke-dasharray="${(circ*p/100).toFixed(1)} ${circ.toFixed(1)}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"/>
+    <text x="${c}" y="${c+size*.09}" text-anchor="middle" font-size="${size*.26}" font-weight="700" fill="var(--text)">${Math.round(p)}%</text>
+  </svg>`;
+}
 
 // ── Area chart (SVG) ──────────────────────────────────────────────────────────
 // Map CSS vars to hex for SVG (SVG does not support CSS custom properties in attributes)
@@ -1313,18 +1354,48 @@ function pageDashboard(){
   <!-- ── ROW 3: Categories + Health ────────────────────────────────── -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
     <div class="w-card">
-      <div class="sec-title mb-16">Gastos por Categoria · ${moLbl(S.mes)}</div>
-      ${allCats.length ? allCats.slice(0,8).map((d,i)=>`
-        <div style="margin-bottom:13px">
-          <div class="row between mb-4">
-            <div class="row gap-8">
-              <div style="width:9px;height:9px;border-radius:50%;background:${PAL[i%PAL.length]};flex-shrink:0"></div>
-              <span style="font-size:12.5px;color:var(--text-2)">${esc(d.name)}</span>
+      ${(()=>{
+        const catsByGroup=(()=>{
+          const m={};
+          allCats.forEach(d=>{
+            const g=groupOf(d.name);
+            if(!m[g]) m[g]={name:g,value:0};
+            m[g].value+=d.value;
+          });
+          return Object.values(m).sort((a,b)=>b.value-a.value);
+        })();
+        const totGrupos=catsByGroup.reduce((a,g)=>a+g.value,0);
+        if(!catsByGroup.length) return `<div class="sec-title mb-16">Gastos por Categoria</div>${emptyState('📊','Nenhum gasto em '+moLbl(S.mes))}`;
+        return`
+        <div class="row between mb-4"><div class="sec-title">Gastos por Categoria</div></div>
+        <div class="text-xs text-muted mb-14">Total de gastos · ${moLbl(S.mes)}</div>
+        <div class="row gap-16" style="align-items:center;margin-bottom:18px">
+          <div style="position:relative;flex-shrink:0">
+            ${donutCustom(catsByGroup.map(g=>({value:g.value,color:groupColor(g.name)})),100)}
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none">
+              <div class="mono fw-800" style="font-size:13px">${fmt(totGrupos)}</div>
             </div>
-            <span class="mono fw-700" style="font-size:12px">${fmt(d.value)}</span>
           </div>
-          ${progH(d.value, totD+totCa||1, PAL[i%PAL.length], 5)}
-        </div>`).join('') : emptyState('📊','Nenhum gasto em '+moLbl(S.mes))}
+          <div style="flex:1;display:flex;flex-direction:column;gap:7px;min-width:0">
+            ${catsByGroup.slice(0,4).map(g=>`<div class="row gap-6"><span style="width:8px;height:8px;border-radius:50%;background:${groupColor(g.name)};flex-shrink:0"></span><span style="font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.name)} <b style="color:var(--text)">(${fmtP(totGrupos>0?g.value/totGrupos*100:0)})</b></span></div>`).join('')}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${catsByGroup.map(g=>{
+            const pctVal=totGrupos>0?g.value/totGrupos*100:0;
+            const color=groupColor(g.name);
+            const budget=+S.groupBudgets[g.name]||0;
+            return`<div data-cat-detalhe="${esc(g.name)}" style="cursor:pointer;display:flex;align-items:center;gap:12px;padding:9px;border-radius:12px;background:var(--bg);border:1.5px solid transparent;transition:border-color .15s" onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='transparent'">
+              ${miniRing(pctVal,color,38)}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${GROUP_ICONS[g.name]||'📦'} ${esc(g.name)}</div>
+                <div style="font-size:11px;color:${budget>0?'var(--muted)':'var(--green)'};font-weight:600;margin-top:2px">${budget>0?`Limite: ${fmt(budget)}`:'+ Definir limite'}</div>
+              </div>
+              <div class="mono fw-700" style="font-size:13px;flex-shrink:0">${fmt(g.value)}</div>
+            </div>`;
+          }).join('')}
+        </div>`;
+      })()}
     </div>
     <div class="w-card">
       <div class="sec-title mb-16">Saúde Financeira · ${moLbl(S.mes)}</div>
@@ -1425,6 +1496,98 @@ function pageDashboard(){
       }).join(''):emptyState('📅','Nenhuma compra parcelada em andamento')}
     </div>`;
   })()}`;
+}
+
+// ── Detalhe de categoria (drill-down a partir do Dashboard) ─────────────────────
+function pageCategoriaDetalhe(){
+  const grupo=S.catDetalheGrupo;
+  const subFiltro=S.catDetalheSub||'Todos';
+  const color=groupColor(grupo);
+  const inGroup=x=>x.origem!=='empresa'&&groupOf(x.categoria)===grupo;
+
+  // Histórico de 9 meses do grupo, pra tendência
+  const NMESES=9;
+  const histGrupo=Array.from({length:NMESES},(_,i)=>{
+    const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()-(NMESES-1-i));
+    const m=d.toISOString().slice(0,7);
+    const de=S.despesas.filter(x=>inGroup(x)&&x.data?.startsWith(m)).reduce((a,x)=>a+(+x.valor),0);
+    const la=S.lancs.filter(x=>inGroup(x)&&x.mes===m).reduce((a,x)=>a+(+x.valor),0);
+    return{n:moLbl(m),v:de+la};
+  });
+
+  const itemsMes=[
+    ...S.despesas.filter(x=>inGroup(x)&&x.data?.startsWith(S.mes)).map(x=>({...x,_source:'desp'})),
+    ...S.lancs.filter(x=>inGroup(x)&&x.mes===S.mes).map(x=>({...x,_source:'lanc'})),
+  ].sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  const totalGrupo=itemsMes.reduce((a,x)=>a+(+x.valor),0);
+  const subsComGasto=(CAT_SUB[grupo]||[]).filter(s=>itemsMes.some(x=>x.categoria===s));
+  const itemsFiltrados=subFiltro==='Todos'?itemsMes:itemsMes.filter(x=>x.categoria===subFiltro);
+  const budget=+S.groupBudgets[grupo]||0;
+
+  // Todos os grupos com gasto neste mês, pras abas de navegação entre categorias
+  const gruposComGasto=(()=>{
+    const m={};
+    [...S.despesas.filter(x=>x.origem!=='empresa'&&x.data?.startsWith(S.mes)),...S.lancs.filter(x=>x.origem!=='empresa'&&x.mes===S.mes)]
+      .forEach(x=>{const g=groupOf(x.categoria);m[g]=(m[g]||0)+(+x.valor);});
+    return Object.keys(m).sort((a,b)=>m[b]-m[a]);
+  })();
+
+  return`
+  <div class="row gap-10 mb-16" style="align-items:center">
+    <button data-cat-detalhe-voltar style="background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:8px;display:flex">${ic('back','var(--text)')}</button>
+    <div class="page-title" style="font-size:18px">${GROUP_ICONS[grupo]||'📦'} ${esc(grupo)}</div>
+  </div>
+
+  <div class="row gap-6 wrap mb-16">
+    ${gruposComGasto.map(g=>`<button data-cat-detalhe="${esc(g)}" class="inv-filter-tab${g===grupo?' active':''}" style="${g===grupo?`background:${color};box-shadow:none`:''}">${GROUP_ICONS[g]||'📦'} ${esc(g)}</button>`).join('')}
+  </div>
+
+  <div class="w-card mb-16">
+    <div class="text-xs text-muted mb-4">Gastos em ${moLbl(S.mes)}</div>
+    <div class="mono fw-800" style="font-size:24px;margin-bottom:14px;color:${color}">${fmt(totalGrupo)}</div>
+    ${areaChartSVG(histGrupo,color,'v')}
+  </div>
+
+  <div class="w-card mb-16">
+    <div class="row between" style="align-items:center">
+      <span class="text-xs text-muted fw-600" style="text-transform:uppercase;letter-spacing:.5px">Limite mensal</span>
+      <div class="row gap-8" style="align-items:center">
+        <input class="group-budget-inp" data-group-budget="${esc(grupo)}" type="number" min="0" placeholder="Definir limite" value="${budget||''}"
+          style="width:120px;background:var(--bg);border:1.5px solid var(--border-2);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:700;font-family:var(--font);text-align:right;outline:none;color:var(--text)"/>
+      </div>
+    </div>
+    ${budget>0?`<div class="mt-8">${progH(totalGrupo,budget,totalGrupo>budget?'var(--red)':color,6)}</div><div class="text-xs text-muted mt-6">${fmtP(budget>0?totalGrupo/budget*100:0)} do limite${totalGrupo>budget?` · <span style="color:var(--red);font-weight:700">estourou em ${fmt(totalGrupo-budget)}</span>`:''}</div>`:''}
+  </div>
+
+  <div class="row gap-6 wrap mb-14">
+    <button data-cat-sub-filtro="Todos" class="btn ${subFiltro==='Todos'?'btn-primary':'btn-ghost'} btn-sm">Todos</button>
+    ${subsComGasto.map(s=>`<button data-cat-sub-filtro="${esc(s)}" class="btn ${subFiltro===s?'btn-primary':'btn-ghost'} btn-sm">${esc(s)}</button>`).join('')}
+  </div>
+
+  <div class="w-card overflow-hidden">
+    <div class="row between" style="padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div class="sec-title">Transações</div>
+      <span class="mono fw-700" style="color:${color}">${fmt(itemsFiltrados.reduce((a,x)=>a+(+x.valor),0))}</span>
+    </div>
+    ${itemsFiltrados.length?itemsFiltrados.map(x=>{
+      const isLanc=x._source==='lanc';
+      const card=isLanc?S.cartoes.find(c=>c.id===x.cartaoId):null;
+      return`<div class="list-row">
+        <div class="row gap-12 flex-1" style="min-width:0">
+          <div style="background:${color}18;border-radius:11px;padding:9px;display:flex;flex-shrink:0">${ic(isLanc?'card':'down',color)}</div>
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.descricao||x.categoria)}</div>
+            <div class="row gap-6 mt-4 wrap">
+              <span style="font-size:11px;color:var(--muted)">${esc(x.categoria)}</span>
+              ${isLanc?`<span style="font-size:11px;color:var(--muted)">· ${esc(card?.nome||'Cartão')}</span>`:''}
+              <span style="font-size:11px;color:var(--muted)">· ${esc(x.data||'')}</span>
+            </div>
+          </div>
+        </div>
+        <span class="mono fw-700" style="color:${color}">${fmt(x.valor)}</span>
+      </div>`;
+    }).join(''):emptyState('🧾','Nenhuma transação nessa categoria em '+moLbl(S.mes))}
+  </div>`;
 }
 
 
@@ -2693,7 +2856,8 @@ function render(){
   renderTopbar();
   const main=document.getElementById('main');
   main.className='au';
-  if(S.tab==='dashboard')      main.innerHTML=pageDashboard();
+  if(S.tab==='dashboard'&&S.catDetalheGrupo) main.innerHTML=pageCategoriaDetalhe();
+  else if(S.tab==='dashboard') main.innerHTML=pageDashboard();
   else if(S.tab==='receitas')  main.innerHTML=pageReceitas();
   else if(S.tab==='despesas')  main.innerHTML=pageDespesas();
   else if(S.tab==='cartoes'&&S.cardView) main.innerHTML=pageCardView();
@@ -2709,7 +2873,7 @@ function render(){
 function bindEvents(){
   // Sidebar + mobile nav tabs
   document.querySelectorAll('[data-tab]').forEach(el=>el.addEventListener('click',()=>{
-    const patch={tab:el.dataset.tab,cardView:null};
+    const patch={tab:el.dataset.tab,cardView:null,catDetalheGrupo:null};
     if(el.dataset.despTipoPreset){patch.despTipoFilter=el.dataset.despTipoPreset;patch.despCatFilter='Todos';}
     setState(patch);
   }));
@@ -2744,6 +2908,24 @@ function bindEvents(){
   });
   // Card view
   document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView})));
+  // Detalhe de categoria (drill-down do Dashboard)
+  document.querySelectorAll('[data-cat-detalhe]').forEach(el=>el.addEventListener('click',()=>{
+    setState({catDetalheGrupo:el.dataset.catDetalhe,catDetalheSub:'Todos'});
+  }));
+  document.querySelectorAll('[data-cat-detalhe-voltar]').forEach(el=>el.addEventListener('click',()=>{
+    setState({catDetalheGrupo:null});
+  }));
+  document.querySelectorAll('[data-cat-sub-filtro]').forEach(el=>el.addEventListener('click',()=>{
+    setState({catDetalheSub:el.dataset.catSubFiltro});
+  }));
+  document.querySelectorAll('.group-budget-inp').forEach(el=>{
+    el.addEventListener('change',e=>{
+      const key=el.dataset.groupBudget;
+      S.groupBudgets={...S.groupBudgets,[key]:+e.target.value||0};
+      if(!(+e.target.value)) delete S.groupBudgets[key];
+      save();render();
+    });
+  });
   // Back
   document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null})));
   // Delete
@@ -3440,13 +3622,13 @@ function loadImportFile(file){
 }
 
 function exportData(){
-  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,reservaMeses:S.reservaMeses,budgets:S.budgets,faturaPaga:S.faturaPaga,v:'mf6'},null,2)],{type:'application/json'});
+  const b=new Blob([JSON.stringify({receitas:S.receitas,despesas:S.despesas,cartoes:S.cartoes,lancs:S.lancs,invest:S.invest,investMetas:S.investMetas,investAporte:S.investAporte,investHistorico:S.investHistorico,reservaMeses:S.reservaMeses,budgets:S.budgets,groupBudgets:S.groupBudgets,faturaPaga:S.faturaPaga,v:'mf6'},null,2)],{type:'application/json'});
   const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`financas-${today()}.json`;a.click();URL.revokeObjectURL(u);
 }
 function importData(file){
   const r=new FileReader();
   r.onload=e=>{
-    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;if(d.reservaMeses)S.reservaMeses=d.reservaMeses;if(d.budgets)S.budgets=d.budgets;if(d.faturaPaga)S.faturaPaga=d.faturaPaga;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
+    try{const d=JSON.parse(e.target.result);if(d.receitas)S.receitas=d.receitas;if(d.despesas)S.despesas=d.despesas;if(d.cartoes)S.cartoes=d.cartoes;if(d.lancs)S.lancs=d.lancs;if(d.invest)S.invest=d.invest;if(d.investMetas)S.investMetas=d.investMetas;if(d.investAporte!==undefined)S.investAporte=d.investAporte;if(d.investHistorico)S.investHistorico=d.investHistorico;if(d.reservaMeses)S.reservaMeses=d.reservaMeses;if(d.budgets)S.budgets=d.budgets;if(d.groupBudgets)S.groupBudgets=d.groupBudgets;if(d.faturaPaga)S.faturaPaga=d.faturaPaga;save();setState({syncMsg:'✅ Dados importados com sucesso!'});}
     catch{setState({syncMsg:'❌ Arquivo inválido ou corrompido.'});}
   };
   r.readAsText(file);
@@ -3480,6 +3662,7 @@ if(typeof google !== 'undefined' && google.script){
         if(d.apiKey)             S.apiKey    = d.apiKey;
         if(d.reservaMeses)       S.reservaMeses = d.reservaMeses;
         if(d.budgets)            S.budgets   = d.budgets;
+        if(d.groupBudgets)       S.groupBudgets = d.groupBudgets;
         if(d.faturaPaga)         S.faturaPaga = d.faturaPaga;
       }catch(e){ console.error('GAS parse error:', e); }
     }
@@ -3489,7 +3672,7 @@ if(typeof google !== 'undefined' && google.script){
       cartoes: S.cartoes, lancs: S.lancs, invest: S.invest,
       customCats: S.customCats, investMetas: S.investMetas,
       investHistorico: S.investHistorico, investAporte: S.investAporte,
-      apiKey: S.apiKey, reservaMeses: S.reservaMeses, budgets: S.budgets, faturaPaga: S.faturaPaga, v:'mf6'
+      apiKey: S.apiKey, reservaMeses: S.reservaMeses, budgets: S.budgets, groupBudgets: S.groupBudgets, faturaPaga: S.faturaPaga, v:'mf6'
     });
     google.script.run
       .withSuccessHandler(()=>_showGasBadge('✅ Salvo no Sheets'))
