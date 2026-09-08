@@ -119,6 +119,7 @@ a{color:inherit;text-decoration:none}
   border-bottom:1px solid var(--border);
   position:sticky;top:0;z-index:50;
 }
+.topbar-left{min-width:0}
 .topbar-left .page-title{font-size:21px;font-weight:800;letter-spacing:-.4px;line-height:1.1}
 .topbar-left .page-sub{font-size:12.5px;color:var(--muted);margin-top:2px}
 .topbar-right{display:flex;align-items:center;gap:8px}
@@ -145,18 +146,30 @@ a{color:inherit;text-decoration:none}
   .sidebar{display:none}
   .main{margin-left:0}
   .topbar{padding:14px 16px}
+  .topbar-left .page-title{font-size:17px}
   .content{padding:16px 14px 80px}
   .mobile-nav{display:flex!important}
+  /* Linhas de lançamento (despesa/receita/cartão): a descrição espremia pra poucas letras
+     dividindo espaço com valor+ações na mesma linha — agora a descrição ocupa a linha toda
+     e valor/ações vão pra linha de baixo */
+  .list-row{flex-wrap:wrap;row-gap:8px;padding:14px 16px}
+  .list-row>.flex-1{flex-basis:100%}
+  /* Barra roxa "Detalhes do Cartão": título com o mesmo problema do topbar (espremido pelos
+     botões de ação) e os botões (Importar Extrato/Lançar/Excluir) cortados fora da tela */
+  .nav-head{flex-wrap:wrap;row-gap:10px}
+  .nav-head span{white-space:normal}
+  .nav-head [style*="margin-left:auto"]{margin-left:0;flex-basis:100%;flex-wrap:wrap}
   .col-3{grid-template-columns:1fr!important}
   .col-2{grid-template-columns:1fr!important}
   .hide-m{display:none!important}
-  /* Colapsa os grids de página (múltiplos cards lado a lado) para 1 coluna — evita corte horizontal */
+  /* Colapsa os grids de página (múltiplos cards lado a lado) para 1 coluna — evita corte horizontal.
+     Casa por substring "1fr 1fr" (sem exigir o gap exato), então qualquer grid novo de 2/3 colunas
+     já entra automaticamente — antes cada gap diferente (8px/10px/12px/...) precisava de uma entrada
+     própria e ficava fácil esquecer uma e vazar conteúdo pra fora da tela no mobile. */
+  [style*="grid-template-columns:1fr 1fr"],
   [style*="grid-template-columns:1.1fr 1fr 1fr"],
   [style*="grid-template-columns:1.4fr 1fr"],
-  [style*="grid-template-columns:1fr 1fr;gap:18px"],
   [style*="grid-template-columns:repeat(4,1fr)"],
-  [style*="grid-template-columns:1fr 1fr;gap:16px 32px"],
-  [style*="grid-template-columns:1fr 1fr 1fr;gap:12px"],
   [style*="grid-template-columns:repeat(3,1fr)"],
   [style*="grid-template-columns:180px 1fr"],
   [style*="grid-template-columns:260px 1fr"]{
@@ -172,9 +185,9 @@ a{color:inherit;text-decoration:none}
 .row{display:flex;align-items:center}
 .col{display:flex;flex-direction:column}
 .grid{display:grid}
-.grid-4{grid-template-columns:repeat(4,1fr);gap:16px}
-.grid-2{grid-template-columns:1fr 1fr;gap:14px}
-.grid-3{grid-template-columns:1fr 1fr 1fr;gap:14px}
+.grid-4{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.grid-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .gap-4{gap:4px}.gap-5{gap:5px}.gap-6{gap:6px}.gap-8{gap:8px}
 .gap-10{gap:10px}.gap-12{gap:12px}.gap-14{gap:14px}.gap-16{gap:16px}.gap-20{gap:20px}
 .mb-2{margin-bottom:2px}.mb-3{margin-bottom:3px}.mb-4{margin-bottom:4px}
@@ -228,7 +241,7 @@ a{color:inherit;text-decoration:none}
 
 /* ── Modal ──────────────────────────────────────────────────────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(12,14,20,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)}
-.modal-box{background:var(--panel);border-radius:22px;width:100%;max-width:520px;max-height:92vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.22)}
+.modal-box{background:var(--panel);border-radius:22px;width:100%;min-width:0;max-width:520px;max-height:92vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.22)}
 @media(max-width:700px){.modal-overlay{align-items:flex-end;padding:0}.modal-box{border-radius:22px 22px 0 0;max-width:100%}}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:20px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel);z-index:1}
 .modal-body{padding:18px 22px 32px;display:flex;flex-direction:column;gap:15px}
@@ -365,7 +378,7 @@ const IC = {
   plus:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   trash:`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
   x:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-  back:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
+  back:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
   brain:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg>`,
   wallet:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`,
   alert:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
@@ -731,11 +744,13 @@ function cloudPush(){
 function _showGasBadge(msg){
   let el=document.getElementById('gas-badge');
   if(!el){el=document.createElement('div');el.id='gas-badge';
-    Object.assign(el.style,{position:'fixed',bottom:'16px',right:'16px',zIndex:'9999',
+    Object.assign(el.style,{position:'fixed',right:'16px',zIndex:'9999',
     background:'var(--nav)',color:'#fff',padding:'8px 14px',borderRadius:'10px',
     fontSize:'12px',fontWeight:'600',fontFamily:'var(--font)',
     boxShadow:'0 4px 16px rgba(0,0,0,.2)',transition:'opacity .4s'});
     document.body.appendChild(el);}
+  // no mobile, o nav inferior fixo cobre os últimos 16px — sobe o toast pra não tampar os ícones
+  el.style.bottom=window.innerWidth<=700?'calc(70px + env(safe-area-inset-bottom))':'16px';
   el.textContent=msg;el.style.opacity='1';
   clearTimeout(el._t);el._t=setTimeout(()=>el.style.opacity='0',3000);
 }
@@ -1878,7 +1893,7 @@ function pageCartoes(){
   return`
     <div class="page-head">
       <div class="text-xs text-muted">${S.cartoes.length} cartão(ões) · Fatura: <span class="mono fw-700" style="color:var(--blue)">${fmt(totCa)}</span></div>
-      <div class="row gap-8">
+      <div class="row gap-8 wrap">
         <button class="${btnC('ai')}" id="btn-import-ext" ${S.stmtScanLoad||!S.cartoes.length?'disabled':''}>${S.stmtScanLoad?ic('spin','#fff')+' Lendo extrato...':ic('camera','#fff')+'Importar Extrato com IA'}</button>
         <button class="${btnC('outline')}" data-modal="lanc" ${!S.cartoes.length?'disabled':''}>${ic('plus','var(--accent)')}Lançar</button>
         <button class="${btnC('primary')}" data-modal="cartao">${ic('plus','#fff')}Novo Cartão</button>
@@ -1929,7 +1944,7 @@ function pageCardView(){
 
   return`
     <div class="nav-head">
-      <button style="background:rgba(255,255,255,.15);border:none;border-radius:9px;padding:8px;display:flex" data-back>${ic('back')}</button>
+      <button style="background:rgba(255,255,255,.15);border:none;border-radius:9px;padding:8px;display:flex;color:#fff" data-back>${ic('back')}</button>
       <span style="color:#fff;font-weight:700;font-size:15px">Detalhes do Cartão</span>
       <div class="row gap-6" style="margin-left:auto">
         <button class="btn btn-ai btn-sm" id="btn-import-ext-card" data-card-scan="${esc(card.id)}" ${S.stmtScanLoad?'disabled':''}>${S.stmtScanLoad?ic('spin','#fff')+' Lendo...':ic('camera','#fff')+'Importar Extrato com IA'}</button>
@@ -2786,8 +2801,8 @@ function renderTopbar(){
       <div class="page-sub">${meta.sub} · ${moLbl(S.mes)}</div>
     </div>
     <div class="topbar-right">
-      <div class="topbar-icon">${ic('search','var(--muted)')}</div>
-      <div class="topbar-icon">${ic('bell','var(--muted)')}</div>
+      <div class="topbar-icon hide-m">${ic('search','var(--muted)')}</div>
+      <div class="topbar-icon hide-m">${ic('bell','var(--muted)')}</div>
       <select id="mob-mes" class="topbar-rate">${monthOptions()}</select>
     </div>`;
 }
@@ -3538,8 +3553,8 @@ function renderImportModal(){
           <button id="btn-sel-nodup" class="${btnC('ghost','sm')}">Só novas</button>
         </div>
 
-        <div style="border:1px solid var(--border);border-radius:11px;overflow:hidden;max-height:400px;overflow-y:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <div style="border:1px solid var(--border);border-radius:11px;max-height:400px;overflow:auto">
+          <table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--bg);position:sticky;top:0">
               <th style="padding:8px 10px;text-align:left;font-weight:700;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)">✓</th>
               <th style="padding:8px 10px;text-align:left;font-weight:700;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)">Data</th>
