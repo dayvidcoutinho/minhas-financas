@@ -814,7 +814,11 @@ function derived(){
   const receitaMediaProjetada=mesesComReceita.length
     ? mesesComReceita.reduce((a,h)=>a+h.Receitas,0)/mesesComReceita.length
     : totR;
-  const recorrenteFixoMensal=fD.filter(x=>x.recorrencia==='mensal').reduce((a,x)=>a+(+x.valor),0);
+  // Recorrentes mensais: despesas diretas E lançamentos de cartão (assinaturas etc. no crédito
+  // também precisam entrar na projeção, não só despesas em pix/dinheiro)
+  const recorrenteFixoMensalDesp=fD.filter(x=>x.recorrencia==='mensal').reduce((a,x)=>a+(+x.valor),0);
+  const recorrenteFixoMensalLanc=S.lancs.filter(x=>x.mes===S.mes&&x.origem!=='empresa'&&x.recorrencia==='mensal').reduce((a,x)=>a+(+x.valor),0);
+  const recorrenteFixoMensal=recorrenteFixoMensalDesp+recorrenteFixoMensalLanc;
   const fluxoFuturo=Array.from({length:6},(_,i)=>{
     const d=new Date(S.mes+'-02');d.setMonth(d.getMonth()+1+i);const m=d.toISOString().slice(0,7);
     const parcelasDesp=S.despesas.filter(x=>x.origem!=='empresa'&&x.data?.startsWith(m)).reduce((a,x)=>a+(+x.valor),0);
@@ -1518,7 +1522,7 @@ function pageDashboard(){
       </div>
     </div>
     ${barChartSVG(fluxoFuturo)}
-    ${recorrenteFixoMensal>0?`<div class="text-xs text-muted mt-8">+ ${fmt(recorrenteFixoMensal)}/mês em despesas fixas recorrentes já incluídos na projeção</div>`:''}
+    ${recorrenteFixoMensal>0?`<div class="text-xs text-muted mt-8">+ ${fmt(recorrenteFixoMensal)}/mês em despesas e assinaturas recorrentes (pix/dinheiro + cartão) já incluídos na projeção</div>`:''}
   </div>
 
   <!-- ── ROW 6: Parcelamentos em Andamento ─────────────────────────────── -->
