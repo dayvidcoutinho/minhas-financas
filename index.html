@@ -1441,6 +1441,38 @@ function pageDashboard(){
     </div>
   </div>
 
+  <!-- ── ROW 3.5: Fixos vs Variáveis ──────────────────────────────────── -->
+  ${(()=>{
+    const fixoVal=fD.filter(x=>x.tipo==='fixa').reduce((a,x)=>a+(+x.valor),0);
+    const variavelVal=fD.filter(x=>x.tipo==='variavel').reduce((a,x)=>a+(+x.valor),0);
+    const totFV=fixoVal+variavelVal;
+    if(totFV<=0) return '';
+    const FV=[{label:'Fixos',v:fixoVal,color:'var(--amber)',preset:'fixa'},{label:'Variáveis',v:variavelVal,color:'var(--purple)',preset:'variavel'}];
+    return`<div class="w-card" style="margin-top:18px">
+      <div class="sec-title mb-4">Gastos Fixos vs Variáveis</div>
+      <div class="text-xs text-muted mb-14">Despesas diretas · ${moLbl(S.mes)}</div>
+      <div class="row gap-16" style="align-items:center">
+        <div style="position:relative;flex-shrink:0;width:110px;height:110px">
+          ${donutCustom(FV.map(x=>({value:x.v,color:x.color})),110)}
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="text-align:center;width:44px">
+              <div style="font-size:7px;color:var(--muted);font-weight:700">R$</div>
+              <div class="mono fw-800" style="font-size:9.5px;line-height:1.2;word-break:break-word">${fmt(totFV).replace('R$','').trim()}</div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
+          ${FV.map(x=>`<div data-tab="despesas" data-desp-tipo-preset="${x.preset}" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--bg);border:1.5px solid transparent;transition:border-color .15s" onmouseover="this.style.borderColor='${x.color}'" onmouseout="this.style.borderColor='transparent'">
+            <span style="width:9px;height:9px;border-radius:50%;background:${x.color};flex-shrink:0"></span>
+            <span style="flex:1;font-size:12.5px;font-weight:600;color:var(--text-2)">${x.label}</span>
+            <span style="font-size:11px;color:var(--muted)">${fmtP(totFV>0?x.v/totFV*100:0)}</span>
+            <span class="mono fw-700" style="font-size:13px">${fmt(x.v)}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  })()}
+
   <!-- ── ROW 4: Taxa de Poupança + Reserva de Emergência ─────────────── -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px">
     <div class="w-card">
