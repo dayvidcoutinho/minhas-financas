@@ -619,6 +619,9 @@ let S = {
   modal:    null,
   form:     {},
   cardView: null,
+  cardCatGrupo: null,
+  cardCatSub: null,
+  cardLancSort: 'data',
   aiText:   LS.get('mf6-ai')||'',
   aiLoad:   false,
   apiKey:   LS.get('mf6-key')||'',
@@ -1955,10 +1958,17 @@ function pageCardView(){
   const avail=Math.max(+card.limite-fatTot,0);
   const usedPct=+card.limite>0?Math.min((fatTot/+card.limite)*100,100):0;
 
-  // Categories — pessoal only for personal dashboard
+  // Categories — pessoal only for personal dashboard, em 2 camadas (grupo → subcategoria)
   const catMap={};
   pessoalL.forEach(x=>{catMap[x.categoria]=(catMap[x.categoria]||0)+(+x.valor);});
-  const cardCats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+  const cardCatsLeaf=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+  const catGroupMap={};
+  cardCatsLeaf.forEach(c=>{const g=groupOf(c.name);catGroupMap[g]=(catGroupMap[g]||0)+c.value;});
+  const cardCatsGrupo=Object.entries(catGroupMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+  const grupoAtivo=S.cardCatGrupo&&catGroupMap[S.cardCatGrupo]!==undefined?S.cardCatGrupo:null;
+  const subAtivo=grupoAtivo&&S.cardCatSub&&groupOf(S.cardCatSub)===grupoAtivo?S.cardCatSub:null;
+  const cardCats=grupoAtivo?cardCatsLeaf.filter(c=>groupOf(c.name)===grupoAtivo):cardCatsGrupo;
+  const totCatView=grupoAtivo?cardCats.reduce((a,c)=>a+c.value,0):fatPes;
 
   const cardEvol=(()=>{const m={};pessoalL.forEach(x=>{const d=x.data||'';m[d]=(m[d]||0)+(+x.valor);});return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).map(([d,v])=>({n:d.slice(5),v}));})();
 
@@ -2037,31 +2047,39 @@ function pageCardView(){
       ${empresaL.length>5?`<div style="font-size:12px;color:var(--muted);padding-top:8px;text-align:center">+${empresaL.length-5} outros lançamentos</div>`:''}
     </div>`:''}
 
-    <!-- ── Por categoria ────────────────────────────────────────────────── -->
+    <!-- ── Por categoria (navegação em camadas: grupo → subcategoria) ────── -->
     ${cardCats.length?`<div class="w-card mt-12">
       <div class="row between mb-20">
-        <div><div class="sec-title">Por categoria</div><div style="font-size:11px;color:var(--muted);margin-top:3px">Somente gastos pessoais · ${moLbl(S.mes)}</div></div>
-        <div class="mono fw-800" style="font-size:18px;color:var(--red)">${fmt(fatPes)}</div>
+        <div>
+          <div class="row gap-8" style="align-items:center">
+            ${grupoAtivo?`<button data-card-cat-back style="background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px;display:flex">${ic('back')}</button>`:''}
+            <div class="sec-title">${grupoAtivo?`${GROUP_ICONS[grupoAtivo]||'📦'} ${esc(grupoAtivo)}`:'Por categoria'}</div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">Somente gastos pessoais · ${moLbl(S.mes)}</div>
+        </div>
+        <div class="mono fw-800" style="font-size:18px;color:var(--red)">${fmt(totCatView)}</div>
       </div>
       <div style="display:grid;grid-template-columns:180px 1fr;gap:24px;align-items:center">
         <!-- Donut -->
         <div style="position:relative;display:flex;align-items:center;justify-content:center">
           ${donutCat(cardCats,180)}
           <div style="position:absolute;text-align:center">
-            <div class="mono fw-800" style="font-size:15px;color:var(--text)">${fmt(fatPes)}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">pessoal</div>
+            <div class="mono fw-800" style="font-size:15px;color:var(--text)">${fmt(totCatView)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${grupoAtivo?'grupo':'pessoal'}</div>
           </div>
         </div>
-        <!-- Lista -->
+        <!-- Lista: grupos (nível 1) ou subcategorias do grupo ativo (nível 2) -->
         <div style="display:flex;flex-direction:column;gap:0">
           ${cardCats.map((c,i)=>{
-            const pct=fatPes>0?c.value/fatPes*100:0;
+            const pct=totCatView>0?c.value/totCatView*100:0;
             const color=PAL[i%PAL.length];
-            return`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+            const clickAttr=grupoAtivo?`data-card-cat-sub="${esc(c.name)}"`:`data-card-cat-grupo="${esc(c.name)}"`;
+            const active=subAtivo===c.name;
+            return`<div ${clickAttr} style="cursor:pointer;padding:10px 6px;margin:0 -6px;border-radius:8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:${active?color+'14':'transparent'}">
               <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
               <div style="flex:1;min-width:0">
                 <div class="row between mb-4">
-                  <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(catLabel(c.name))}</span>
+                  <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${grupoAtivo?esc(catLabel(c.name)):`${GROUP_ICONS[c.name]||'📦'} ${esc(c.name)}`}</span>
                   <span class="mono fw-700" style="font-size:13px;color:${color};margin-left:12px">${fmt(c.value)}</span>
                 </div>
                 <div style="background:var(--border);border-radius:99px;height:4px;overflow:hidden">
@@ -2082,19 +2100,37 @@ function pageCardView(){
     </div>`:''}
 
     <!-- ── Lançamentos ──────────────────────────────────────────────────── -->
-    <div class="w-card overflow-hidden mt-12">
-      <div class="row between" style="padding:16px 20px;border-bottom:1px solid var(--border)">
-        <div class="sec-title">Lançamentos</div>
-        <span style="font-size:12px;color:var(--muted)">${cardL.length} em ${moLbl(S.mes)}</span>
+    ${(()=>{
+      const cardLancSort=S.cardLancSort||'data';
+      let cardLFiltered=cardL;
+      if(subAtivo) cardLFiltered=cardLFiltered.filter(x=>x.categoria===subAtivo);
+      else if(grupoAtivo) cardLFiltered=cardLFiltered.filter(x=>groupOf(x.categoria)===grupoAtivo);
+      const cardLSorted=[...cardLFiltered].sort((a,b)=>
+        cardLancSort==='categoria'
+          ? catLabel(a.categoria).localeCompare(catLabel(b.categoria))||(b.data||'').localeCompare(a.data||'')
+          : (b.data||'').localeCompare(a.data||'')
+      );
+      return`<div class="w-card overflow-hidden mt-12">
+      <div class="row between wrap" style="padding:16px 20px;border-bottom:1px solid var(--border);gap:8px">
+        <div class="row gap-8" style="align-items:center;flex-wrap:wrap">
+          <div class="sec-title">Lançamentos</div>
+          ${(grupoAtivo||subAtivo)?`<button data-card-cat-clear style="display:inline-flex;align-items:center;gap:5px;background:var(--accent-lt);color:var(--accent);border:none;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">${esc(catLabel(subAtivo||grupoAtivo))} ${ic('x','var(--accent)')}</button>`:''}
+        </div>
+        <div class="row gap-6" style="align-items:center;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">Ordenar por</span>
+          <button data-card-lanc-sort="data" class="btn ${cardLancSort==='data'?'btn-primary':'btn-ghost'} btn-sm">Data</button>
+          <button data-card-lanc-sort="categoria" class="btn ${cardLancSort==='categoria'?'btn-primary':'btn-ghost'} btn-sm">Categoria</button>
+          <span style="font-size:12px;color:var(--muted)">${cardLSorted.length} em ${moLbl(S.mes)}</span>
+        </div>
       </div>
-      ${cardL.length?cardL.map((l)=>{
+      ${cardLSorted.length?cardLSorted.map((l)=>{
         const isEmp=l.origem==='empresa';
         return`<div style="padding:14px 20px;border-bottom:1px solid var(--border);background:${isEmp?'rgba(59,130,246,.04)':'transparent'}">
           <div class="row between mb-6">
             <div class="row gap-10">
               <div style="background:${isEmp?'rgba(59,130,246,.12)':'rgba(239,68,68,.08)'};border-radius:9px;padding:8px;display:flex">${ic('card',isEmp?'var(--blue)':'var(--red)')}</div>
               <div>
-                <div style="font-weight:600;font-size:13px">${esc(l.descricao||l.categoria)}</div>
+                <div style="font-weight:600;font-size:13px">${esc(l.descricao||catLabel(l.categoria))}</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(l.data)}</div>
               </div>
             </div>
@@ -2114,6 +2150,7 @@ function pageCardView(){
         </div>`;
       }).join(''):emptyState('🧾','Nenhum lançamento')}
     </div>`;
+    })()}`;
 }
 
 function pageInvest(){
@@ -2939,7 +2976,7 @@ function render(){
 function bindEvents(){
   // Sidebar + mobile nav tabs
   document.querySelectorAll('[data-tab]').forEach(el=>el.addEventListener('click',()=>{
-    const patch={tab:el.dataset.tab,cardView:null,catDetalheGrupo:null};
+    const patch={tab:el.dataset.tab,cardView:null,catDetalheGrupo:null,cardCatGrupo:null,cardCatSub:null};
     if(el.dataset.despTipoPreset){patch.despTipoFilter=el.dataset.despTipoPreset;patch.despCatFilter='Todos';}
     setState(patch);
   }));
@@ -2973,7 +3010,7 @@ function bindEvents(){
     save();render();
   });
   // Card view
-  document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView})));
+  document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView,cardCatGrupo:null,cardCatSub:null})));
   // Detalhe de categoria (drill-down do Dashboard)
   document.querySelectorAll('[data-cat-detalhe]').forEach(el=>el.addEventListener('click',()=>{
     setState({catDetalheGrupo:el.dataset.catDetalhe,catDetalheSub:'Todos'});
@@ -2993,7 +3030,23 @@ function bindEvents(){
     });
   });
   // Back
-  document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null})));
+  document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null,cardCatGrupo:null,cardCatSub:null})));
+  // Navegação em camadas (grupo → subcategoria) dentro do detalhe do cartão
+  document.querySelectorAll('[data-card-cat-grupo]').forEach(el=>el.addEventListener('click',()=>{
+    setState({cardCatGrupo:el.dataset.cardCatGrupo,cardCatSub:null});
+  }));
+  document.querySelectorAll('[data-card-cat-sub]').forEach(el=>el.addEventListener('click',()=>{
+    setState({cardCatSub:el.dataset.cardCatSub});
+  }));
+  document.querySelectorAll('[data-card-cat-back]').forEach(el=>el.addEventListener('click',()=>{
+    setState({cardCatGrupo:null,cardCatSub:null});
+  }));
+  document.querySelectorAll('[data-card-cat-clear]').forEach(el=>el.addEventListener('click',()=>{
+    setState({cardCatGrupo:null,cardCatSub:null});
+  }));
+  document.querySelectorAll('[data-card-lanc-sort]').forEach(el=>el.addEventListener('click',()=>{
+    setState({cardLancSort:el.dataset.cardLancSort});
+  }));
   // Delete
   document.querySelectorAll('[data-del-r]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();S.receitas=S.receitas.filter(x=>x.id!==el.dataset.delR);save();render();}));
   document.querySelectorAll('[data-del-d]').forEach(el=>el.addEventListener('click',e=>{
