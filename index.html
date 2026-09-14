@@ -1701,6 +1701,7 @@ function pageDespesas(){
           <div class="row gap-6 mt-4 wrap">
             <span style="display:inline-flex;align-items:center;gap:4px;background:${catColor}18;color:${catColor};padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${esc(catLabel(x.categoria))}</span>
             ${isLanc?`<span style="font-size:11px;color:var(--muted)">${esc(card?.nome||'Cartão')}</span>`:`<span style="font-size:11px;color:var(--muted)">${x.tipo==='fixa'?'Fixo':'Variável'}</span>`}
+            ${!isLanc&&x.formaPagamento?`<span style="font-size:11px;color:var(--muted)">${{pix:'📱 Pix',dinheiro:'💵 Dinheiro',transferencia:'🏦 Transf.',boleto:'📄 Boleto'}[x.formaPagamento]||''}</span>`:''}
             ${x.recorrencia&&x.recorrencia!=='nenhuma'?`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(74,108,247,.1);color:var(--accent)">🔁 ${x.recorrencia}</span>`:''}
             ${x.parcelas&&+x.parcelas>1?`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(124,58,237,.1);color:var(--purple)">${x.parcelas}×</span>`:''}
             <span style="font-size:11px;color:var(--muted)">${esc(x.data||'')}</span>
@@ -2612,6 +2613,7 @@ function renderModal(){
     const ori=f.origem||'pessoal';
     const recorrencia=f.recorrencia||'nenhuma';
     const parcelas=+f.parcelas||1;
+    const formaPagamento=f.formaPagamento||'pix';
     const scanState=S.scanImg?`<img src="${S.scanImg}" style="width:100%;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid var(--border);margin-top:8px"/>`:'';
 
     // Descrições salvas (últimas 10 únicas)
@@ -2631,6 +2633,14 @@ function renderModal(){
       <!-- Origem: Pessoal / Empresa -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${['pessoal','empresa'].map(o=>`<button data-origem="${o}" style="padding:10px;border-radius:10px;font-size:13px;font-weight:600;border:1.5px solid ${ori===o?(o==='pessoal'?'var(--teal)':'var(--blue)'):'var(--border)'};background:${ori===o?(o==='pessoal'?'var(--teal-lt)':'var(--blue-lt)'):'transparent'};color:${ori===o?(o==='pessoal'?'var(--teal)':'var(--blue)'):'var(--muted)'}">${o==='pessoal'?'👤 Pessoal':'🏢 Empresa'}</button>`).join('')}
+      </div>
+
+      <!-- Forma de pagamento -->
+      <div class="inp-wrap">
+        <label>Forma de pagamento</label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+          ${[{v:'pix',l:'📱 Pix'},{v:'dinheiro',l:'💵 Dinheiro'},{v:'transferencia',l:'🏦 Transf.'},{v:'boleto',l:'📄 Boleto'}].map(p=>`<button data-forma-pagamento="${p.v}" style="padding:8px 4px;border-radius:9px;font-size:12px;font-weight:600;border:1.5px solid ${formaPagamento===p.v?'var(--teal)':'var(--border)'};background:${formaPagamento===p.v?'var(--teal-lt)':'transparent'};color:${formaPagamento===p.v?'var(--teal)':'var(--muted)'}">${p.l}</button>`).join('')}
+        </div>
       </div>
 
       <!-- Descrição com sugestões salvas -->
@@ -3096,6 +3106,7 @@ function bindEvents(){
       setState({form:{...S.form,recorrencia:el.dataset.recorrencia}});
     }));
     mbox.querySelectorAll('[data-tipo]').forEach(el=>el.addEventListener('click',()=>{setState({form:{...S.form,tipo:el.dataset.tipo}});}));
+    mbox.querySelectorAll('[data-forma-pagamento]').forEach(el=>el.addEventListener('click',()=>{setState({form:{...S.form,formaPagamento:el.dataset.formaPagamento}});}));
     // Origem (Pessoal / Empresa) buttons — usa setState para garantir re-render com novo objeto
     mbox.querySelectorAll('[data-origem]').forEach(el=>el.addEventListener('click',()=>{
       setState({form:{...S.form,origem:el.dataset.origem}});
@@ -3246,7 +3257,7 @@ function bindEvents(){
 function openModal(type){
   const def={
     receita:{categoria:CAT_INC[0],data:today(),origem:'pessoal'},
-    despesa:{tipo:'fixa',categoria:CAT_EXP[0],data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma'},
+    despesa:{tipo:'fixa',categoria:CAT_EXP[0],data:today(),origem:'pessoal',parcelas:'1',recorrencia:'nenhuma',formaPagamento:'pix'},
     lanc:{cartaoId:S.cartoes[0]?.id||'',categoria:CAT_EXP[0],mes:S.mes,parcelas:'1',data:today(),reembolso:false,origem:'pessoal',recorrencia:'nenhuma'},
     cartao:{banco:'Nubank',bandeira:'Visa',limite:'5000',fechamento:'14',vencimento:'21'},
     invest:{tipo:'Renda Fixa',subtipo:'CDB',retorno:'12',dataInicio:today(),custoAquisicao:'',precoMedio:'',vencimento:'',aporteMensal:'',origemInvest:'reserva'}
