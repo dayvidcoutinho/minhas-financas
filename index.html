@@ -1362,15 +1362,21 @@ function pageDashboard(){
           const icon=isRec?ic('up',color):isLanc?ic('card',color):ic('down',color);
           const bg=isRec?'var(--green-lt)':isLanc?'var(--blue-lt)':'var(--red-lt)';
           const sign=isRec?'+':'-';
+          const editAttr=isRec?`data-edit-r="${esc(tx.id)}"`:isLanc?`data-edit-l="${esc(tx.id)}"`:`data-edit-d="${esc(tx.id)}"`;
+          const delAttr=isRec?`data-del-r="${esc(tx.id)}"`:isLanc?`data-del-l="${esc(tx.id)}"`:`data-del-d="${esc(tx.id)}"`;
           return`<div class="list-row" style="padding:11px 0">
             <div class="row gap-12">
               <div style="background:${bg};border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon}</div>
               <div>
-                <div style="font-size:13px;font-weight:600;line-height:1.2">${esc(tx.descricao||tx.categoria||'—')}</div>
-                <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(tx.categoria)} · ${esc(tx.data||'')}</div>
+                <div style="font-size:13px;font-weight:600;line-height:1.2">${esc(tx.descricao||catLabel(tx.categoria)||'—')}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(catLabel(tx.categoria))} · ${esc(tx.data||'')}</div>
               </div>
             </div>
-            <div class="mono fw-700" style="font-size:13px;color:${color}">${sign}${fmt(tx.valor)}</div>
+            <div class="row gap-6" style="flex-shrink:0">
+              <span class="mono fw-700" style="font-size:13px;color:${color}">${sign}${fmt(tx.valor)}</span>
+              <button class="list-edit" ${editAttr}>${ic('edit','var(--accent)')}</button>
+              <button class="list-del" ${delAttr}>${ic('trash')}</button>
+            </div>
           </div>`;
         }).join(''):emptyState('🧾','Nenhuma transação em '+moLbl(S.mes))}
       </div>
@@ -1648,7 +1654,13 @@ function pageCategoriaDetalhe(){
             </div>
           </div>
         </div>
-        <span class="mono fw-700" style="color:${color}">${fmt(x.valor)}</span>
+        <div class="row gap-8" style="flex-shrink:0">
+          <span class="mono fw-700" style="color:${color}">${fmt(x.valor)}</span>
+          ${isLanc
+            ?`<button class="list-edit" data-edit-l="${esc(x.id)}">${ic('edit','var(--accent)')}</button><button class="list-del" data-del-l="${esc(x.id)}">${ic('trash')}</button>`
+            :`<button class="list-edit" data-edit-d="${esc(x.id)}">${ic('edit','var(--accent)')}</button><button class="list-del" data-del-d="${esc(x.id)}">${ic('trash')}</button>`
+          }
+        </div>
       </div>`;
     }).join(''):emptyState('🧾','Nenhuma transação nessa categoria em '+moLbl(S.mes))}
   </div>`;
