@@ -650,6 +650,7 @@ let S = {
   investHistorico: LS.get('mf6-hist')||[],
   despSearch: '',
   despCatFilter: 'Todos',
+  despCatGrupo: null,
   despTipoFilter: 'Todos',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
   budgets: LS.get('mf6-budgets')||{},
@@ -1696,17 +1697,25 @@ function pageDespesas(){
     ...lancEmp.map(x=>({...x,_source:'lanc',tipo:'cartao',categoria:x.categoria||'Outros'})),
   ];
 
-  // ── Categories dashboard (all items combined) ─────────────────────────────
+  // ── Categories dashboard (all items combined), em 2 camadas (grupo → subcategoria) ─
   const catMap={};
   allItems.forEach(x=>{const c=x.categoria||'Outros';catMap[c]=(catMap[c]||0)+(+x.valor);});
   const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const uniqueCats=['Todos',...cats.map(c=>c.name)];
+  const catsByGroupDesp=(()=>{
+    const m={};
+    cats.forEach(c=>{const g=groupOf(c.name);if(!m[g])m[g]={name:g,value:0};m[g].value+=c.value;});
+    return Object.values(m).sort((a,b)=>b.value-a.value);
+  })();
+  const despGrupoAtivo=S.despCatGrupo&&catsByGroupDesp.some(g=>g.name===S.despCatGrupo)?S.despCatGrupo:null;
+  const catsView=despGrupoAtivo?cats.filter(c=>groupOf(c.name)===despGrupoAtivo):catsByGroupDesp;
+  const totCatsView=despGrupoAtivo?catsView.reduce((a,c)=>a+c.value,0):totGeral;
 
   // ── Apply filters ─────────────────────────────────────────────────────────
   let filtered = allItems.filter(x=>{
     const txt=(x.descricao||x.categoria||'').toLowerCase();
     const matchSearch = !search || txt.includes(search);
-    const matchCat    = catFilt==='Todos' || x.categoria===catFilt;
+    const matchCat    = catFilt!=='Todos' ? x.categoria===catFilt : (despGrupoAtivo?groupOf(x.categoria)===despGrupoAtivo:true);
     const matchTipo   = tipoFilt==='Todos' ||
                         (tipoFilt==='cartao' && x._source==='lanc') ||
                         (tipoFilt==='fixa'   && x.tipo==='fixa') ||
@@ -1715,7 +1724,7 @@ function pageDespesas(){
   });
 
   const filtTotal = filtered.reduce((a,x)=>a+(+x.valor),0);
-  const isFiltered = search || catFilt!=='Todos' || tipoFilt!=='Todos';
+  const isFiltered = search || catFilt!=='Todos' || tipoFilt!=='Todos' || !!despGrupoAtivo;
 
   // ── KPI cards ─────────────────────────────────────────────────────────────
   const kpis = [
@@ -1772,11 +1781,14 @@ function pageDespesas(){
     </div>`).join('')}
   </div>
 
-  <!-- ── Dashboard de categorias + orçamento ──────────────────────────────────── -->
+  <!-- ── Dashboard de categorias + orçamento (grupo → subcategoria) ────────────── -->
   <div class="w-card mb-20">
     <div class="row between mb-4">
-      <div class="sec-title">Gastos por Categoria · ${moLbl(S.mes)}</div>
-      <div class="mono fw-700" style="color:var(--red)">${fmt(totGeral)}</div>
+      <div class="row gap-8" style="align-items:center">
+        ${despGrupoAtivo?`<button data-desp-cat-grupo-back style="background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px;display:flex">${ic('back')}</button>`:''}
+        <div class="sec-title">${despGrupoAtivo?`${GROUP_ICONS[despGrupoAtivo]||'📦'} ${esc(despGrupoAtivo)}`:`Gastos por Categoria · ${moLbl(S.mes)}`}</div>
+      </div>
+      <div class="mono fw-700" style="color:var(--red)">${fmt(totCatsView)}</div>
     </div>
     <div class="text-xs text-muted mb-16">Defina um limite mensal por categoria para acompanhar o orçamento</div>
     ${(()=>{
@@ -1785,20 +1797,25 @@ function pageDespesas(){
         ⚠️ ${estourado.length} categoria${estourado.length>1?'s':''} acima do orçamento: ${estourado.map(c=>esc(catLabel(c.name))).join(', ')}
       </div>`:'';
     })()}
-    ${cats.length ? `
+    ${catsView.length ? `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px 32px">
-      ${cats.slice(0,12).map((c,i)=>{
+      ${catsView.slice(0,12).map((c,i)=>{
         const color=PAL[i%PAL.length];
-        const active=catFilt===c.name;
-        const budget=+S.budgets[c.name]||0;
-        const pctVal=budget>0?(c.value/budget*100):(totGeral>0?c.value/totGeral*100:0);
+        const isLeaf=!!despGrupoAtivo;
+        const active=isLeaf&&catFilt===c.name;
+        const budget=isLeaf?(+S.budgets[c.name]||0):(+S.groupBudgets[c.name]||0);
+        const pctVal=budget>0?(c.value/budget*100):(totCatsView>0?c.value/totCatsView*100:0);
         const over=budget>0&&c.value>budget;
         const barColor=budget>0?(over?'var(--red)':pctVal>=80?'var(--amber)':color):color;
-        return`<div style="cursor:pointer;padding:6px 8px;border-radius:10px;background:${active?color+'18':'transparent'};border:1.5px solid ${active?color:'transparent'};transition:all .15s" data-desp-cat="${esc(c.name)}">
+        const clickAttr=isLeaf?`data-desp-cat="${esc(c.name)}"`:`data-desp-cat-grupo="${esc(c.name)}"`;
+        const budgetInput=isLeaf
+          ?`<input class="budget-inp" data-budget-cat="${esc(c.name)}" type="number" min="0" placeholder="—" value="${budget||''}" style="width:56px;background:var(--bg);border:1.5px solid var(--border-2);border-radius:6px;padding:2px 5px;font-size:11px;font-weight:700;font-family:var(--font);text-align:center;outline:none;color:var(--text)"/>`
+          :`<input class="group-budget-inp" data-group-budget="${esc(c.name)}" type="number" min="0" placeholder="—" value="${budget||''}" style="width:56px;background:var(--bg);border:1.5px solid var(--border-2);border-radius:6px;padding:2px 5px;font-size:11px;font-weight:700;font-family:var(--font);text-align:center;outline:none;color:var(--text)"/>`;
+        return`<div style="cursor:pointer;padding:6px 8px;border-radius:10px;background:${active?color+'18':'transparent'};border:1.5px solid ${active?color:'transparent'};transition:all .15s" ${clickAttr}>
           <div class="row between mb-5">
             <div class="row gap-8">
               <span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;margin-top:1px"></span>
-              <span style="font-size:12.5px;font-weight:600;color:var(--text-2)">${esc(catLabel(c.name))}</span>
+              <span style="font-size:12.5px;font-weight:600;color:var(--text-2)">${isLeaf?esc(catLabel(c.name)):`${GROUP_ICONS[c.name]||'📦'} ${esc(c.name)}`}</span>
               ${over?ic('alert','var(--red)'):''}
             </div>
             <span class="mono fw-700" style="font-size:12px;color:${over?'var(--red)':color}">${fmt(c.value)}</span>
@@ -1810,14 +1827,13 @@ function pageDespesas(){
             <span style="font-size:10px;color:${over?'var(--red)':'var(--muted)'};font-weight:${over?700:400}">${budget>0?`${fmtP(pctVal)} de ${fmt(budget)}${over?' · +'+fmt(c.value-budget)+' acima':''}`:fmtP(pctVal)}</span>
             <span class="row gap-4" style="align-items:center" onclick="event.stopPropagation()">
               <span style="font-size:9px;color:var(--muted)">orçamento</span>
-              <input class="budget-inp" data-budget-cat="${esc(c.name)}" type="number" min="0" placeholder="—" value="${budget||''}"
-                style="width:56px;background:var(--bg);border:1.5px solid var(--border-2);border-radius:6px;padding:2px 5px;font-size:11px;font-weight:700;font-family:var(--font);text-align:center;outline:none;color:var(--text)"/>
+              ${budgetInput}
             </span>
           </div>
         </div>`;
       }).join('')}
     </div>
-    ${catFilt!=='Todos'?`<div class="mt-12" style="text-align:center"><button class="btn btn-ghost btn-sm" data-desp-cat="Todos">✕ Limpar filtro de categoria</button></div>`:''}
+    ${catFilt!=='Todos'?`<div class="mt-12" style="text-align:center"><button class="btn btn-ghost btn-sm" data-desp-cat-clear>✕ Limpar filtro de categoria</button></div>`:''}
     ` : emptyState('📊','Nenhum gasto em '+moLbl(S.mes))}
   </div>
 
@@ -1855,7 +1871,7 @@ function pageDespesas(){
             :`Todos os gastos <span style="font-size:13px;color:var(--muted);font-weight:500">(${allItems.length})</span>`
           }
         </div>
-        ${catFilt!=='Todos'?`<button data-desp-cat="Todos" style="display:inline-flex;align-items:center;gap:5px;background:var(--accent-lt);color:var(--accent);border:none;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Categoria: ${esc(catFilt)} ${ic('x','var(--accent)')}</button>`:''}
+        ${catFilt!=='Todos'?`<button data-desp-cat-clear style="display:inline-flex;align-items:center;gap:5px;background:var(--accent-lt);color:var(--accent);border:none;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Categoria: ${esc(catLabel(catFilt))} ${ic('x','var(--accent)')}</button>`:despGrupoAtivo?`<button data-desp-cat-clear style="display:inline-flex;align-items:center;gap:5px;background:var(--accent-lt);color:var(--accent);border:none;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">Grupo: ${GROUP_ICONS[despGrupoAtivo]||'📦'} ${esc(despGrupoAtivo)} ${ic('x','var(--accent)')}</button>`:''}
       </div>
       ${isFiltered?`<span class="mono fw-700" style="color:var(--red)">${fmt(filtTotal)}</span>`:''}
     </div>
@@ -2981,7 +2997,7 @@ function bindEvents(){
   // Sidebar + mobile nav tabs
   document.querySelectorAll('[data-tab]').forEach(el=>el.addEventListener('click',()=>{
     const patch={tab:el.dataset.tab,cardView:null,catDetalheGrupo:null,cardCatGrupo:null,cardCatSub:null};
-    if(el.dataset.despTipoPreset){patch.despTipoFilter=el.dataset.despTipoPreset;patch.despCatFilter='Todos';}
+    if(el.dataset.despTipoPreset){patch.despTipoFilter=el.dataset.despTipoPreset;patch.despCatFilter='Todos';patch.despCatGrupo=null;}
     setState(patch);
   }));
   // Modal open
@@ -3271,10 +3287,20 @@ function bindEvents(){
     const v=el.dataset.despCat;
     setState({despCatFilter: S.despCatFilter===v&&v!=='Todos'?'Todos':v});
   }));
+  // Navegação em camadas (grupo → subcategoria) no "Gastos por Categoria" da Despesas
+  document.querySelectorAll('[data-desp-cat-grupo]').forEach(el=>el.addEventListener('click',()=>{
+    setState({despCatGrupo:el.dataset.despCatGrupo,despCatFilter:'Todos'});
+  }));
+  document.querySelectorAll('[data-desp-cat-grupo-back]').forEach(el=>el.addEventListener('click',()=>{
+    setState({despCatGrupo:null,despCatFilter:'Todos'});
+  }));
+  document.querySelectorAll('[data-desp-cat-clear]').forEach(el=>el.addEventListener('click',()=>{
+    setState({despCatGrupo:null,despCatFilter:'Todos'});
+  }));
   document.querySelectorAll('[data-desp-tipo]').forEach(el=>el.addEventListener('click',()=>{
     // reseta o filtro de categoria ao trocar de aba — senão uma categoria escolhida antes
     // continua restringindo o resultado e parece que a aba "não funciona"
-    setState({despTipoFilter: el.dataset.despTipo, despCatFilter:'Todos'});
+    setState({despTipoFilter: el.dataset.despTipo, despCatFilter:'Todos', despCatGrupo:null});
   }));
   const despSearch=document.getElementById('desp-search');
   if(despSearch){
