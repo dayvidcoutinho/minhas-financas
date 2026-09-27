@@ -652,6 +652,7 @@ let S = {
   despCatFilter: 'Todos',
   despCatGrupo: null,
   despTipoFilter: 'Todos',
+  despFormaFilter: 'Todos',
   cartaoSearch: '',
   cardViewSearch: '',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
@@ -1690,6 +1691,7 @@ function pageDespesas(){
   const search  = (S.despSearch||'').toLowerCase();
   const catFilt = S.despCatFilter||'Todos';
   const tipoFilt= S.despTipoFilter||'Todos';
+  const formaFilt=S.despFormaFilter||'Todos';
 
   // ── Build unified transactions list (despesas + lançamentos de cartão) ──────
   const lancMes = S.lancs.filter(x=>x.mes===S.mes);
@@ -1734,11 +1736,13 @@ function pageDespesas(){
                         (tipoFilt==='cartao' && x._source==='lanc') ||
                         (tipoFilt==='fixa'   && x.tipo==='fixa') ||
                         (tipoFilt==='variavel'&& x.tipo==='variavel');
-    return matchSearch && matchCat && matchTipo;
+    const matchForma  = formaFilt==='Todos' ||
+                        (formaFilt==='cartao' ? x._source==='lanc' : x.formaPagamento===formaFilt);
+    return matchSearch && matchCat && matchTipo && matchForma;
   });
 
   const filtTotal = filtered.reduce((a,x)=>a+(+x.valor),0);
-  const isFiltered = search || catFilt!=='Todos' || tipoFilt!=='Todos' || !!despGrupoAtivo;
+  const isFiltered = search || catFilt!=='Todos' || tipoFilt!=='Todos' || formaFilt!=='Todos' || !!despGrupoAtivo;
 
   // ── KPI cards ─────────────────────────────────────────────────────────────
   const kpis = [
@@ -1870,6 +1874,17 @@ function pageDespesas(){
         return`<button data-desp-tipo="${t}" class="btn ${active?'btn-primary':'btn-ghost'} btn-sm">${labels[t]}</button>`;
       }).join('')}
     </div>
+  </div>
+  <!-- Filtro forma de pagamento -->
+  <div class="row gap-6 wrap mb-14" style="align-items:center">
+    <span style="font-size:11px;color:var(--muted);font-weight:600">Forma de pagamento:</span>
+    ${['Todos','pix','dinheiro','transferencia','boleto','cartao'].map(f=>{
+      const labels={Todos:'Todos',pix:'📱 Pix',dinheiro:'💵 Dinheiro',transferencia:'🏦 Transferência',boleto:'📄 Boleto',cartao:'💳 Cartão'};
+      const active=formaFilt===f;
+      return`<button data-desp-forma="${f}" class="btn ${active?'btn-primary':'btn-ghost'} btn-sm">${labels[f]}</button>`;
+    }).join('')}
+  </div>
+  <div class="row gap-10 mb-14 wrap" style="justify-content:flex-end">
     <!-- Importar / Nova despesa -->
     <button class="${btnC('ai')}" id="btn-import-desp" ${S.stmtScanLoad?'disabled':''}>${S.stmtScanLoad?ic('spin','#fff')+' Lendo...':ic('camera','#fff')+'Importar Extrato com IA'}</button>
     <button class="${btnC('primary')}" data-modal="despesa">${ic('plus','#fff')}Nova Despesa</button>
@@ -3341,6 +3356,10 @@ function bindEvents(){
     // reseta o filtro de categoria ao trocar de aba — senão uma categoria escolhida antes
     // continua restringindo o resultado e parece que a aba "não funciona"
     setState({despTipoFilter: el.dataset.despTipo, despCatFilter:'Todos', despCatGrupo:null});
+  }));
+  document.querySelectorAll('[data-desp-forma]').forEach(el=>el.addEventListener('click',()=>{
+    const v=el.dataset.despForma;
+    setState({despFormaFilter: S.despFormaFilter===v&&v!=='Todos'?'Todos':v});
   }));
   // Busca com foco/cursor preservados através do re-render (mesmo padrão pros 3 campos de busca)
   const bindSearchInput=(id,stateKey)=>{
