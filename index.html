@@ -652,6 +652,8 @@ let S = {
   despCatFilter: 'Todos',
   despCatGrupo: null,
   despTipoFilter: 'Todos',
+  cartaoSearch: '',
+  cardViewSearch: '',
   reservaMeses: LS.get('mf6-reserva-meses')||6,
   budgets: LS.get('mf6-budgets')||{},
   groupBudgets: LS.get('mf6-group-budgets')||{},
@@ -1949,8 +1951,22 @@ function pageCartoes(){
         <div class="row between text-xs mt-6" style="color:var(--muted)"><span>Fecha ${esc(card.fechamento)} · Vence ${esc(card.vencimento)}</span><span style="color:${bc};font-weight:600">${nL} lançamento(s)</span></div>
       </div></div>`;}).join('')}</div>`:emptyState('💳','Nenhum cartão cadastrado');
   const allLancs=S.lancs.filter(x=>x.mes===S.mes);
-  const recentes=allLancs.length?`<div style="margin-top:20px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Todos os lançamentos — ${moLbl(S.mes)}</div>
-    <div class="panel overflow-hidden">${allLancs.sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,10).map((l,i,arr)=>{
+  const cartaoSearch=(S.cartaoSearch||'').toLowerCase();
+  const allLancsFiltrados=cartaoSearch
+    ? allLancs.filter(x=>(x.descricao||'').toLowerCase().includes(cartaoSearch)||catLabel(x.categoria).toLowerCase().includes(cartaoSearch))
+    : allLancs;
+  const recentes=allLancs.length?`<div style="margin-top:20px">
+    <div class="row between mb-8" style="align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Todos os lançamentos — ${moLbl(S.mes)}</div>
+      <div style="flex:1;min-width:180px;max-width:280px;position:relative">
+        <div style="position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)">${ic('search','var(--muted)')}</div>
+        <input id="cartao-search" type="text" value="${esc(S.cartaoSearch||'')}"
+          placeholder="Buscar lançamento..."
+          style="width:100%;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:8px 10px 8px 34px;font-size:12.5px;font-family:var(--font);outline:none;transition:border-color .15s"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
+      </div>
+    </div>
+    <div class="panel overflow-hidden">${allLancsFiltrados.length?allLancsFiltrados.sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,cartaoSearch?100:10).map((l,i,arr)=>{
       const card=S.cartoes.find(c=>c.id===l.cartaoId),bc=BANK_C[card?.banco]||'#718096';
       return`<div class="list-row"><div class="row gap-10">${av(inits(card?.nome||'?'),bc,32)}<div>
         <div class="row gap-6 wrap" style="font-weight:600;font-size:13px">${esc(l.descricao||catLabel(l.categoria))}${l.reembolso?badge(l.reembolsado?'✓ Reemb.':'⏳ Reemb.',l.reembolsado?'var(--green)':'var(--teal)'):''}</div>
@@ -1961,7 +1977,7 @@ function pageCartoes(){
         <button class="list-edit" data-edit-l="${esc(l.id)}">${ic('edit','var(--accent)')}</button>
         <button class="list-del" data-del-l="${esc(l.id)}">${ic('trash')}</button>
       </div></div>`;
-    }).join('')}</div></div>`:'';
+    }).join(''):emptyState('🔍','Nenhum lançamento encontrado')}</div></div>`:'';
   return`
     <div class="page-head">
       <div class="text-xs text-muted">${S.cartoes.length} cartão(ões) · Fatura: <span class="mono fw-700" style="color:var(--blue)">${fmt(totCa)}</span></div>
@@ -2137,6 +2153,8 @@ function pageCardView(){
       let cardLFiltered=cardL;
       if(subAtivo) cardLFiltered=cardLFiltered.filter(x=>x.categoria===subAtivo);
       else if(grupoAtivo) cardLFiltered=cardLFiltered.filter(x=>groupOf(x.categoria)===grupoAtivo);
+      const cardViewSearch=(S.cardViewSearch||'').toLowerCase();
+      if(cardViewSearch) cardLFiltered=cardLFiltered.filter(x=>(x.descricao||'').toLowerCase().includes(cardViewSearch)||catLabel(x.categoria).toLowerCase().includes(cardViewSearch));
       const cardLSorted=[...cardLFiltered].sort((a,b)=>
         cardLancSort==='categoria'
           ? catLabel(a.categoria).localeCompare(catLabel(b.categoria))||(b.data||'').localeCompare(a.data||'')
@@ -2153,6 +2171,15 @@ function pageCardView(){
           <button data-card-lanc-sort="data" class="btn ${cardLancSort==='data'?'btn-primary':'btn-ghost'} btn-sm">Data</button>
           <button data-card-lanc-sort="categoria" class="btn ${cardLancSort==='categoria'?'btn-primary':'btn-ghost'} btn-sm">Categoria</button>
           <span style="font-size:12px;color:var(--muted)">${cardLSorted.length} em ${moLbl(S.mes)}</span>
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <div style="position:relative;max-width:280px">
+          <div style="position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)">${ic('search','var(--muted)')}</div>
+          <input id="card-view-search" type="text" value="${esc(S.cardViewSearch||'')}"
+            placeholder="Buscar lançamento..."
+            style="width:100%;background:var(--panel);border:1.5px solid var(--border);border-radius:10px;padding:8px 10px 8px 34px;font-size:12.5px;font-family:var(--font);outline:none;transition:border-color .15s"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
         </div>
       </div>
       ${cardLSorted.length?cardLSorted.map((l)=>{
@@ -2916,7 +2943,7 @@ function renderTopbar(){
       <div class="page-sub">${meta.sub} · ${moLbl(S.mes)}</div>
     </div>
     <div class="topbar-right">
-      <div class="topbar-icon hide-m">${ic('search','var(--muted)')}</div>
+      <div class="topbar-icon hide-m" id="topbar-search-btn" style="cursor:pointer">${ic('search','var(--muted)')}</div>
       <div class="topbar-icon hide-m">${ic('bell','var(--muted)')}</div>
       <select id="mob-mes" class="topbar-rate">${monthOptions()}</select>
     </div>`;
@@ -3042,7 +3069,7 @@ function bindEvents(){
     save();render();
   });
   // Card view
-  document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView,cardCatGrupo:null,cardCatSub:null})));
+  document.querySelectorAll('[data-card-view]').forEach(el=>el.addEventListener('click',()=>setState({cardView:el.dataset.cardView,cardCatGrupo:null,cardCatSub:null,cardViewSearch:''})));
   // Detalhe de categoria (drill-down do Dashboard)
   document.querySelectorAll('[data-cat-detalhe]').forEach(el=>el.addEventListener('click',()=>{
     setState({catDetalheGrupo:el.dataset.catDetalhe,catDetalheSub:'Todos'});
@@ -3062,7 +3089,7 @@ function bindEvents(){
     });
   });
   // Back
-  document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null,cardCatGrupo:null,cardCatSub:null})));
+  document.querySelectorAll('[data-back]').forEach(el=>el.addEventListener('click',()=>setState({cardView:null,cardCatGrupo:null,cardCatSub:null,cardViewSearch:''})));
   // Navegação em camadas (grupo → subcategoria) dentro do detalhe do cartão
   document.querySelectorAll('[data-card-cat-grupo]').forEach(el=>el.addEventListener('click',()=>{
     setState({cardCatGrupo:el.dataset.cardCatGrupo,cardCatSub:null});
@@ -3314,17 +3341,27 @@ function bindEvents(){
     // continua restringindo o resultado e parece que a aba "não funciona"
     setState({despTipoFilter: el.dataset.despTipo, despCatFilter:'Todos', despCatGrupo:null});
   }));
-  const despSearch=document.getElementById('desp-search');
-  if(despSearch){
-    despSearch.addEventListener('input',e=>{
+  // Busca com foco/cursor preservados através do re-render (mesmo padrão pros 3 campos de busca)
+  const bindSearchInput=(id,stateKey)=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('input',e=>{
       const val=e.target.value;
       const pos=e.target.selectionStart;
-      S.despSearch=val;
+      S[stateKey]=val;
       render();
-      const el=document.getElementById('desp-search');
-      if(el){el.focus();el.setSelectionRange(pos,pos);}
+      const el2=document.getElementById(id);
+      if(el2){el2.focus();el2.setSelectionRange(pos,pos);}
     });
-  }
+  };
+  bindSearchInput('desp-search','despSearch');
+  bindSearchInput('cartao-search','cartaoSearch');
+  bindSearchInput('card-view-search','cardViewSearch');
+  // Ícone de busca do topo: foca a busca da página atual, se ela tiver uma
+  document.getElementById('topbar-search-btn')?.addEventListener('click',()=>{
+    const el=document.getElementById('desp-search')||document.getElementById('cartao-search')||document.getElementById('card-view-search');
+    if(el){el.scrollIntoView({block:'center',behavior:'smooth'});el.focus();}
+  });
   document.querySelectorAll('[data-inv-collapse]').forEach(el=>el.addEventListener('click',()=>{
     const tipo=el.dataset.invCollapse;
     S.investCollapsed={...S.investCollapsed,[tipo]:!S.investCollapsed[tipo]};
