@@ -3435,6 +3435,36 @@ function openEdit(type, item){
   setState({modal:type, form:{...item}, editId:item.id, scanImg:null, scanErr:'', scanLoad:false});
 }
 
+// Gera os N registros de uma compra parcelada (valor de cada parcela = o que foi digitado,
+// repetido — não dividido). Usado tanto ao criar quanto ao editar (virar parcelado agora).
+const buildParcelaDespesas=(updated,parcelas,firstId)=>{
+  const baseDate=new Date(updated.data||today());
+  const out=[];
+  for(let i=0;i<parcelas;i++){
+    const d=new Date(baseDate); d.setMonth(d.getMonth()+i);
+    out.push({...updated,id:(i===0&&firstId)?firstId:uid(),data:d.toISOString().slice(0,10),
+      descricao:`${updated.descricao||updated.categoria} (${i+1}/${parcelas})`,
+      valor:+(+updated.valor).toFixed(2),parcelas:String(parcelas),recorrencia:'nenhuma'});
+  }
+  return out;
+};
+const buildParcelaLancs=(updated,parcelas,firstId)=>{
+  const baseDate=new Date(updated.data||today());
+  const baseMesStr=updated.mes||S.mes;
+  const out=[];
+  for(let i=0;i<parcelas;i++){
+    const d=new Date(baseDate); d.setMonth(d.getMonth()+i);
+    const md=new Date(baseMesStr+'-02'); md.setMonth(md.getMonth()+i);
+    out.push({...updated,id:(i===0&&firstId)?firstId:uid(),data:d.toISOString().slice(0,10),mes:md.toISOString().slice(0,7),
+      descricao:`${updated.descricao||updated.categoria} (${i+1}/${parcelas})`,
+      valor:+(+updated.valor).toFixed(2),parcelas:String(parcelas)});
+  }
+  return out;
+};
+// Uma descrição "Nome (2/3)" já passou pela divisão em parcelas antes — reeditar não deve
+// duplicar/repetir esse processo, só atualizar o registro normalmente.
+const jaEhParcela=desc=>/\(\d+\/\d+\)$/.test(desc||'');
+
 function submitModal(){
   const f=S.form, modal=S.modal, editId=S.editId;
 
@@ -3451,8 +3481,26 @@ function submitModal(){
     if(editId){
       // Update existing
       if(modal==='receita') S.receitas=S.receitas.map(x=>x.id===editId?{...x,...updated}:x);
-      else if(modal==='despesa') S.despesas=S.despesas.map(x=>x.id===editId?{...x,...updated}:x);
-      else if(modal==='lanc') S.lancs=S.lancs.map(x=>x.id===editId?{...x,...updated}:x);
+      else if(modal==='despesa'){
+        const original=S.despesas.find(x=>x.id===editId);
+        const novasParcelas=Math.max(1,Math.min(60,+updated.parcelas||1));
+        if(!jaEhParcela(original?.descricao)&&novasParcelas>1){
+          // Virou parcelado só agora (ex: corrigindo depois de um extrato importado) —
+          // gera as parcelas futuras que nunca chegaram a existir
+          S.despesas=[...buildParcelaDespesas(updated,novasParcelas,editId),...S.despesas.filter(x=>x.id!==editId)];
+        } else {
+          S.despesas=S.despesas.map(x=>x.id===editId?{...x,...updated}:x);
+        }
+      }
+      else if(modal==='lanc'){
+        const original=S.lancs.find(x=>x.id===editId);
+        const novasParcelas=Math.max(1,Math.min(24,+updated.parcelas||1));
+        if(!jaEhParcela(original?.descricao)&&novasParcelas>1){
+          S.lancs=[...buildParcelaLancs(updated,novasParcelas,editId),...S.lancs.filter(x=>x.id!==editId)];
+        } else {
+          S.lancs=S.lancs.map(x=>x.id===editId?{...x,...updated}:x);
+        }
+      }
       else if(modal==='invest') S.invest=S.invest.map(x=>x.id===editId?{...x,...updated}:x);
     } else {
       // Create new
