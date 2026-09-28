@@ -1751,14 +1751,20 @@ function pageDespesas(){
   allItems.forEach(x=>{const c=x.categoria||'Outros';catMap[c]=(catMap[c]||0)+(+x.valor);});
   const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
   const uniqueCats=['Todos',...cats.map(c=>c.name)];
+  // Fatura de cartão (mês anterior, já paga via "Pagar Fatura") vira seu próprio bloco —
+  // já saiu da conta, não é "gasto do mês" igual o resto, então some da lista de grupos
+  // pra não ficar contado duas vezes.
+  const faturaCartaoValor=fD.filter(x=>x.origem!=='empresa'&&x.categoria==='Fatura Cartão').reduce((a,x)=>a+(+x.valor),0);
+  const catsGastosMes=cats.filter(c=>c.name!=='Fatura Cartão');
+  const totGastosMes=totGeral-faturaCartaoValor;
   const catsByGroupDesp=(()=>{
     const m={};
-    cats.forEach(c=>{const g=groupOf(c.name);if(!m[g])m[g]={name:g,value:0};m[g].value+=c.value;});
+    catsGastosMes.forEach(c=>{const g=groupOf(c.name);if(!m[g])m[g]={name:g,value:0};m[g].value+=c.value;});
     return Object.values(m).sort((a,b)=>b.value-a.value);
   })();
   const despGrupoAtivo=S.despCatGrupo&&catsByGroupDesp.some(g=>g.name===S.despCatGrupo)?S.despCatGrupo:null;
-  const catsView=despGrupoAtivo?cats.filter(c=>groupOf(c.name)===despGrupoAtivo):catsByGroupDesp;
-  const totCatsView=despGrupoAtivo?catsView.reduce((a,c)=>a+c.value,0):totGeral;
+  const catsView=despGrupoAtivo?catsGastosMes.filter(c=>groupOf(c.name)===despGrupoAtivo):catsByGroupDesp;
+  const totCatsView=despGrupoAtivo?catsView.reduce((a,c)=>a+c.value,0):totGastosMes;
 
   // ── Apply filters ─────────────────────────────────────────────────────────
   let filtered = allItems.filter(x=>{
@@ -1832,18 +1838,29 @@ function pageDespesas(){
     </div>`).join('')}
   </div>
 
-  <!-- ── Dashboard de categorias + orçamento (grupo → subcategoria) ────────────── -->
+  <!-- ── Cartão de Crédito Último Mês (fatura já paga, já saiu do saldo) ───────── -->
+  ${faturaCartaoValor>0?`<div class="w-card mb-16" style="border-color:rgba(124,58,237,.25);background:rgba(124,58,237,.03)">
+    <div class="row between" style="align-items:center">
+      <div>
+        <div class="sec-title" style="color:var(--purple)">💳 Cartão de Crédito Último Mês</div>
+        <div class="text-xs text-muted mt-4">Fatura já paga · já descontada do saldo de ${moLbl(S.mes)}</div>
+      </div>
+      <div class="mono fw-800" style="font-size:20px;color:var(--purple)">${fmt(faturaCartaoValor)}</div>
+    </div>
+  </div>`:''}
+
+  <!-- ── Gastos do Mês: por categoria + orçamento (grupo → subcategoria) ───────── -->
   <div class="w-card mb-20">
     <div class="row between mb-4">
       <div class="row gap-8" style="align-items:center">
         ${despGrupoAtivo?`<button data-desp-cat-grupo-back style="background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px;display:flex">${ic('back')}</button>`:''}
-        <div class="sec-title">${despGrupoAtivo?`${GROUP_ICONS[despGrupoAtivo]||'📦'} ${esc(despGrupoAtivo)}`:`Gastos por Categoria · ${moLbl(S.mes)}`}</div>
+        <div class="sec-title">${despGrupoAtivo?`${GROUP_ICONS[despGrupoAtivo]||'📦'} ${esc(despGrupoAtivo)}`:`Gastos do Mês · ${moLbl(S.mes)}`}</div>
       </div>
       <div class="mono fw-700" style="color:var(--red)">${fmt(totCatsView)}</div>
     </div>
     <div class="text-xs text-muted mb-16">Defina um limite mensal por categoria para acompanhar o orçamento</div>
     ${(()=>{
-      const estourado=cats.filter(c=>{const b=+S.budgets[c.name]||0;return b>0&&c.value>b;});
+      const estourado=catsGastosMes.filter(c=>{const b=+S.budgets[c.name]||0;return b>0&&c.value>b;});
       return estourado.length?`<div class="mb-14" style="padding:10px 14px;background:var(--red-lt);border:1px solid rgba(244,63,94,.25);border-radius:10px;font-size:12px;color:var(--red);font-weight:600">
         ⚠️ ${estourado.length} categoria${estourado.length>1?'s':''} acima do orçamento: ${estourado.map(c=>esc(catLabel(c.name))).join(', ')}
       </div>`:'';
