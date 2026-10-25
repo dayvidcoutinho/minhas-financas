@@ -720,13 +720,16 @@ function cloudApply(d){
   if(d.apiKey) LS.set('mf6-key',S.apiKey);
   return true;
 }
+// 'ok' = a nuvem respondeu (com ou sem dados novos) · 'empty' = conta ainda não existe na nuvem · 'error' = não deu pra ler
+let _pullStatus='ok';
 async function cloudPull(){
   if(!S.syncCode) return false;
+  _pullStatus='ok';
   try{
     const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{cache:'no-store'});
-    if(!res.ok) return false;
+    if(!res.ok){ _pullStatus='error'; return false; }
     const d=await res.json();
-    if(!d) return false;
+    if(!d){ _pullStatus='empty'; return false; }
     // Se o que está na nuvem não é mais novo que o que já temos localmente, não sobrescreve —
     // isso evita perder edições locais recentes que ainda não tinham sido enviadas (ex: reload logo após salvar).
     if(d.updatedAt && S.updatedAt && d.updatedAt<=S.updatedAt){
@@ -734,7 +737,7 @@ async function cloudPull(){
       return false;
     }
     return cloudApply(d);
-  }catch{ return false; }
+  }catch{ _pullStatus='error'; return false; }
 }
 let _cloudPushTimer=null;
 function cloudPush(){
@@ -749,7 +752,8 @@ function cloudPush(){
         reservaMeses:S.reservaMeses, budgets:S.budgets, groupBudgets:S.groupBudgets, faturaPaga:S.faturaPaga, apiKey:S.apiKey, updatedAt:S.updatedAt,
       });
       const res=await fetch(`/api/sync?code=${encodeURIComponent(S.syncCode)}`,{method:'POST',body:payload});
-      _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
+      if(res.status===409) _showGasBadge('🛑 Não enviado: seus dados aqui estão bem menores que os da nuvem. Recarregue a página.');
+      else _showGasBadge(res.ok?'☁️ Sincronizado':'❌ Falha ao sincronizar');
     }catch{ _showGasBadge('❌ Sem conexão com a nuvem'); }
   },700);
 }
@@ -3065,6 +3069,12 @@ function renderLoginGate(){
     S.syncCode=val; LS.set('mf6-synccode',val);
     S.updatedAt=0; // reseta a "idade" local — login sempre deve confiar na nuvem dessa conta, se existir
     await cloudPull(); // traz os dados já existentes se essa senha já foi usada em outro aparelho
+    if(_pullStatus==='error'){
+      // Não deu pra ler a nuvem: seguir adiante com dados vazios e gravar por cima apagaria tudo.
+      S.syncCode=''; LS.set('mf6-synccode','');
+      setState({loginBusy:false,loginErr:'Não consegui conectar na nuvem. Seus dados estão salvos — confira a internet e tente de novo.'});
+      return;
+    }
     materializeRecurring();
     save(); // garante que a conta exista na nuvem mesmo se for a primeira vez
     setState({loginBusy:false});
